@@ -17,6 +17,7 @@
   --surface: oklch(0.965 0.006 95);
   --surface-2: oklch(0.94 0.008 95);
   --surface-glass: oklch(1 0 0 / 0.72);
+  --surface-dock: oklch(1 0 0 / 0.92);
   --fg: oklch(0.2 0.02 265);
   --fg-muted: oklch(0.45 0.02 265);
   /* Text tokens keep >= 4.5:1 (WCAG AA) on bg, bg-elevated, surface and surface-2. */
@@ -56,6 +57,7 @@
   --surface: oklch(0.185 0.016 268);
   --surface-2: oklch(0.225 0.018 268);
   --surface-glass: oklch(0.2 0.016 268 / 0.7);
+  --surface-dock: oklch(0.2 0.016 268 / 0.92);
   --fg: oklch(0.965 0.006 268);
   --fg-muted: oklch(0.74 0.016 268);
   --fg-subtle: oklch(0.65 0.016 268);

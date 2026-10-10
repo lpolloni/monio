@@ -114,8 +114,10 @@ function BottomNavView({ active }: { active: string | null }) {
   return (
     <nav
       aria-label={t("mainNavigation")}
-      className="glass fixed inset-x-3 bottom-3 z-40 flex items-center rounded-[1.6rem] px-2 pt-1.5 pb-1.5 hairline shadow-float md:hidden"
-      style={{ marginBottom: "env(safe-area-inset-bottom)" }}
+      className="glass fixed inset-x-3 z-40 flex items-center rounded-[1.6rem] px-2 pt-1.5 pb-1.5 hairline shadow-float md:hidden"
+      // Sits partly inside the home-indicator inset (a full inset leaves it floating too high on iPhone).
+      // More opaque than plain glass so the dock stands apart from the content scrolling under it.
+      style={{ bottom: "max(0.75rem, calc(env(safe-area-inset-bottom) - 0.75rem))", background: "var(--surface-dock)" }}
     >
       {left.map(renderItem)}
       <div className="flex flex-1 justify-center">
