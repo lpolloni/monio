@@ -79,7 +79,10 @@ Supabase (Postgres 17 + Auth + Storage), RLS on every table
 5. Post-process (`postProcessUser`): transfer matching (one-to-one, exact or FX-tolerant;
    personal↔business and uncertain pairs become one Smart Inbox question per account pair,
    remembered), possible duplicates, recurring series and subscription price changes,
-   uncategorized/stale-source questions, deterministic insights with evidence.
+   uncategorized/stale-source questions, deterministic insights with evidence. It re-runs after
+   Smart Inbox answers and account-ownership changes, so it is bounded: at most 8 open
+   uncategorized questions, none for transactions still awaiting a transfer decision, and
+   questions that no longer apply are closed automatically (`resolution.decision = "auto"`).
 6. Job stats drive the "Import completed — N transactions organized…" summary.
 
 ## AI
@@ -109,6 +112,12 @@ values derived from market prices; profit/loss is not computed without cost basi
 - Private storage bucket with per-user folder policies and a MIME allow-list.
 - Service role only in `scripts/` (seed, worker) and reference-data upserts; always filtered
   by `user_id`. The browser only ever holds the publishable key and the user's session.
+- Hardening migration (`…0700_security_hardening.sql`): ownership triggers for categories,
+  institutions and inbox transaction ids; invoker-scoped `record_rule_hits`; a constraint that
+  rejects private-key material in watched identifiers; storage paths pinned to the owner's
+  folder; bounded `log_user_action`; TRUNCATE/TRIGGER/REFERENCES revoked from API roles.
+- Retention: `npm run worker -- purge` removes stored documents whose rows were deleted
+  (`src/server/maintenance/purge.ts`); it is not scheduled automatically yet.
 - Audit log (append-only for users) for category/classification changes, deletions, consent
   changes and inbox decisions. `delete_my_financial_data()` + storage cleanup for erasure.
 - Security headers, static-only service worker, `X-Frame-Options: DENY`.

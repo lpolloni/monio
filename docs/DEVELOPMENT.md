@@ -32,7 +32,7 @@ If the Docker daemon is not running in a root VM: `dockerd > /tmp/dockerd.log 2>
 | `npm run dev:seed` | Recreate the demo users and fictional data |
 | `npm run db:reset` | Re-apply all migrations + seed |
 | `npm run db:types` | Regenerate `src/server/supabase/database.types.ts` |
-| `npm run worker -- <jobs\|rates\|wallets\|all>` | Background jobs (queued imports, rates refresh, wallet sync) |
+| `npm run worker -- <jobs\|rates\|wallets\|purge\|all>` | Background jobs (queued imports, rates refresh, wallet sync, orphaned-document purge) |
 | `npm run lint` / `typecheck` / `test` | ESLint, `next typegen && tsc`, Vitest unit tests |
 | `npm run test:integration` | Vitest against the real local Supabase (RLS, storage, import) |
 | `npm run test:e2e` | Playwright (desktop/tablet/mobile, axe accessibility) |
