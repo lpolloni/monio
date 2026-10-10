@@ -172,9 +172,9 @@ export function HomeView({ model }: { model: HomeViewModel }) {
                     {t(`home.${greetingKey(model.now)}`)}
                     {firstName ? `, ${firstName}` : ""} · {formatDate(model.today, locale, "weekday")}
                   </p>
-                  <div className="mt-5 flex flex-wrap items-center gap-3">
+                  <div className="mt-5 flex items-center justify-between gap-3">
                     <span className="text-[13px] font-medium uppercase tracking-[0.16em] text-fg-subtle">{t("home.netWorth")}</span>
-                    <OptionMenu className="h-8" label={t("common.currency")} value={currency} onChange={changeCurrency} options={DISPLAY_CURRENCIES.map((c) => ({ value: c, label: c }))} />
+                    <OptionMenu className="h-8" align="end" label={t("common.currency")} value={currency} onChange={changeCurrency} options={DISPLAY_CURRENCIES.map((c) => ({ value: c, label: c }))} />
                   </div>
                   <h1 className={cn("mt-2 font-display text-[3.1rem] leading-[1] tracking-[-0.02em] text-fg transition-opacity sm:text-[4.2rem]", pending && "opacity-60")}>
                     <AnimatedMoney amount={model.netWorth} currency={model.currency} locale={locale} />
