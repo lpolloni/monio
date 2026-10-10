@@ -18,7 +18,7 @@ Every layer has automated tests. [TEST_RESULTS.md](TEST_RESULTS.md) lists exactl
 ## What works (verified)
 - **Backend:**
   - 7 migrations covering 21 tables. RLS is on every table, with composite ownership FKs, a private storage bucket, an audit log, processing functions and a hardening pass.
-  - Verified with `supabase db reset` and 216 security and pipeline integration tests against the real local stack.
+  - Verified with `supabase db reset` and 230 integration tests (215 security, 15 pipeline and smoke) against the real local stack.
 - **Money:** decimal-safe arithmetic and historical FX with triangulation. Original amounts are never overwritten. The display-currency switch converts at read time.
 - **Import:**
   - Format detection and 8 institution profiles plus generic parsers.
@@ -43,6 +43,15 @@ Every layer has automated tests. [TEST_RESULTS.md](TEST_RESULTS.md) lists exactl
 9. Auth configuration is DEV-grade: email confirmation is off locally, there is no MFA and no rate-limit tuning.
 10. There is no UI yet for manual accounts or balances (cash, property), or for renaming or deleting entities.
 11. AI confidence values in mock mode are simulated and labelled as such.
+
+## Delivery status
+- All work is on the branch `claude/exciting-einstein-olrd0c` (pushed).
+- **The pull request to `main` could not be opened:** the GitHub repository has no `main` branch (this branch became the default when it was first pushed). Creating or pushing to `main` was out of bounds for this session. To open the PR, create `main` from the first commit and open the PR from this branch:
+  ```bash
+  git push origin 2781469:refs/heads/main   # main = initial scaffold commit
+  # then open a PR: base main ← head claude/exciting-einstein-olrd0c
+  ```
+- The repository is **public**. No secrets are committed (`.env.local` is ignored; `.env.example` holds placeholders only).
 
 ## Infrastructure notes (this session)
 - The Docker daemon was started manually. `public.ecr.aws`/GHCR returned 403 and Docker Hub returned 429, so Supabase images came from `mirror.gcr.io` (`SUPABASE_INTERNAL_IMAGE_REGISTRY`) and kong/mailpit/postgrest were re-tagged (automated in `scripts/dev-services.mjs`).

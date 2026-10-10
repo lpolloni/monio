@@ -80,6 +80,6 @@ Status legend: **DONE** means implemented and covered by the tests listed in [TE
 | Lint, typecheck, unit, integration, E2E, production build | DONE | Results in TEST_RESULTS.md |
 | Security suite (RLS isolation, storage, SQL functions, constraints, audit) | DONE | 215 tests |
 | Docs: README, CLAUDE, AGENTS, ARCHITECTURE, DEVELOPMENT, PLAN, TASKS, PROGRESS, TEST_RESULTS | DONE | |
-| Pull request to `main` (no merge) | DONE | |
+| Pull request to `main` (no merge) | BLOCKED | The repository has no `main` branch; see PROGRESS.md for the one-line fix |
 | Scheduled worker runs (imports retry, rates, wallets, orphaned-document purge) | TODO | `npm run worker -- all` exists; nothing schedules it |
 | STG / PROD environments | TODO | Out of scope. Never touched. |
