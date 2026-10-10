@@ -57,6 +57,7 @@ export interface CashflowSummary {
 export function isCountedFlow(tx: FlowTransaction, includeBusiness: boolean): boolean {
   return (
     tx.classification === "regular" &&
+    tx.categoryKind !== "transfer" &&
     !tx.duplicateOf &&
     tx.status === "posted" &&
     countsAsPersonal(tx.entityKind, includeBusiness)
@@ -112,7 +113,7 @@ export function computeCashflow(
   for (const tx of transactions) {
     if (tx.bookedOn < options.from || tx.bookedOn > options.to) continue;
     if (!isCountedFlow(tx, options.includeBusiness)) {
-      if (tx.classification !== "regular") excluded++;
+      if (tx.classification !== "regular" || tx.categoryKind === "transfer") excluded++;
       continue;
     }
     const converted = fx.convert({ amount: tx.amount, currency: tx.currency }, currency, tx.bookedOn);

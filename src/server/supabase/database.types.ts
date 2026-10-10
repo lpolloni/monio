@@ -573,11 +573,17 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "delete_my_financial_data":
+            "apply_transaction_updates":
+{ Args: { "p_updates": Json }; Returns: number
+                           },
+"delete_my_financial_data":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "log_user_action":
 { Args: { "p_action": string,"p_details": Json,"p_target_id": string,"p_target_table": string }; Returns: undefined
+                           },
+"record_rule_hits":
+{ Args: { "p_rule_ids": (string)[] }; Returns: undefined
                            }
           }
           Enums: {

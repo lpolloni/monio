@@ -1,26 +1,244 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Monio design tokens — "Living Finance".
+ * Ink-and-paper neutrals, one luminous accent family (mint → sky → iris) and
+ * semantic hues for asset groups. All colors in OKLCH so both themes keep the
+ * same perceived contrast.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+  --radius: 1.25rem;
+
+  --bg: oklch(0.982 0.005 95);
+  --bg-elevated: oklch(1 0 0);
+  --surface: oklch(0.965 0.006 95);
+  --surface-2: oklch(0.94 0.008 95);
+  --surface-glass: oklch(1 0 0 / 0.72);
+  --fg: oklch(0.2 0.02 265);
+  --fg-muted: oklch(0.45 0.02 265);
+  --fg-subtle: oklch(0.6 0.015 265);
+  --border: oklch(0.2 0.02 265 / 0.09);
+  --border-strong: oklch(0.2 0.02 265 / 0.16);
+  --ring: oklch(0.55 0.17 260);
+
+  --accent: oklch(0.52 0.2 278);
+  --accent-soft: oklch(0.52 0.2 278 / 0.1);
+  --accent-fg: oklch(0.99 0 0);
+  --positive: oklch(0.56 0.14 160);
+  --positive-soft: oklch(0.56 0.14 160 / 0.12);
+  --negative: oklch(0.58 0.19 27);
+  --negative-soft: oklch(0.58 0.19 27 / 0.1);
+  --warning: oklch(0.68 0.15 70);
+  --warning-soft: oklch(0.68 0.15 70 / 0.14);
+
+  --group-cash: oklch(0.6 0.13 235);
+  --group-investments: oklch(0.55 0.18 285);
+  --group-crypto: oklch(0.72 0.15 80);
+  --group-business: oklch(0.6 0.11 190);
+  --group-liabilities: oklch(0.62 0.17 27);
+  --group-other: oklch(0.68 0.07 55);
+
+  --aurora-1: oklch(0.86 0.12 165 / 0.55);
+  --aurora-2: oklch(0.84 0.1 230 / 0.5);
+  --aurora-3: oklch(0.82 0.12 290 / 0.45);
+  --shadow-color: 265 30% 20%;
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: oklch(0.15 0.014 268);
+  --bg-elevated: oklch(0.195 0.016 268);
+  --surface: oklch(0.185 0.016 268);
+  --surface-2: oklch(0.225 0.018 268);
+  --surface-glass: oklch(0.2 0.016 268 / 0.7);
+  --fg: oklch(0.965 0.006 268);
+  --fg-muted: oklch(0.74 0.016 268);
+  --fg-subtle: oklch(0.58 0.016 268);
+  --border: oklch(1 0 0 / 0.075);
+  --border-strong: oklch(1 0 0 / 0.14);
+  --ring: oklch(0.78 0.13 250);
+
+  --accent: oklch(0.76 0.14 282);
+  --accent-soft: oklch(0.76 0.14 282 / 0.14);
+  --accent-fg: oklch(0.16 0.02 268);
+  --positive: oklch(0.82 0.14 162);
+  --positive-soft: oklch(0.82 0.14 162 / 0.13);
+  --negative: oklch(0.74 0.16 28);
+  --negative-soft: oklch(0.74 0.16 28 / 0.13);
+  --warning: oklch(0.84 0.13 80);
+  --warning-soft: oklch(0.84 0.13 80 / 0.14);
+
+  --group-cash: oklch(0.78 0.11 235);
+  --group-investments: oklch(0.74 0.14 290);
+  --group-crypto: oklch(0.85 0.13 85);
+  --group-business: oklch(0.78 0.1 190);
+  --group-liabilities: oklch(0.74 0.15 27);
+  --group-other: oklch(0.8 0.06 62);
+
+  --aurora-1: oklch(0.55 0.12 165 / 0.22);
+  --aurora-2: oklch(0.5 0.12 235 / 0.22);
+  --aurora-3: oklch(0.5 0.16 290 / 0.24);
+  --shadow-color: 268 40% 3%;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-glass: var(--surface-glass);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-cash: var(--group-cash);
+  --color-investments: var(--group-investments);
+  --color-crypto: var(--group-crypto);
+  --color-business: var(--group-business);
+  --color-liabilities: var(--group-liabilities);
+  --color-other: var(--group-other);
+
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-instrument), ui-serif, Georgia, serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 0.75rem);
+  --radius-md: calc(var(--radius) - 0.5rem);
+  --radius-lg: calc(var(--radius) - 0.25rem);
+  --radius-xl: var(--radius);
+  --radius-2xl: calc(var(--radius) + 0.5rem);
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum", "ss01";
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+  .shadow-soft {
+    box-shadow:
+      0 1px 1px hsl(var(--shadow-color) / 0.04),
+      0 4px 12px -2px hsl(var(--shadow-color) / 0.08),
+      0 16px 40px -12px hsl(var(--shadow-color) / 0.12);
+  }
+  .shadow-float {
+    box-shadow:
+      0 1px 2px hsl(var(--shadow-color) / 0.08),
+      0 12px 32px -6px hsl(var(--shadow-color) / 0.22),
+      0 32px 64px -24px hsl(var(--shadow-color) / 0.3);
+  }
+  .glass {
+    background: var(--surface-glass);
+    backdrop-filter: saturate(160%) blur(18px);
+    -webkit-backdrop-filter: saturate(160%) blur(18px);
+  }
+  .hairline {
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+  }
+  .mask-fade-x {
+    mask-image: linear-gradient(to right, transparent, black 1.5rem, black calc(100% - 1.5rem), transparent);
+  }
+}
+
+/* Ambient aurora behind the app — static, no continuous animation. */
+.aurora {
+  position: fixed;
+  inset: -20vh -10vw auto -10vw;
+  height: 70vh;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(40% 55% at 18% 30%, var(--aurora-1), transparent 70%),
+    radial-gradient(35% 50% at 55% 15%, var(--aurora-2), transparent 70%),
+    radial-gradient(40% 55% at 88% 35%, var(--aurora-3), transparent 70%);
+  filter: blur(40px);
+  opacity: 0.9;
+}
+
+.grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface) 50%, var(--surface-2) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+  border-radius: 0.75rem;
 }

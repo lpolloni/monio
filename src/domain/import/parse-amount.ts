@@ -1,4 +1,4 @@
-import { toPlain } from "../money/decimal";
+import { D, toPlain } from "../money/decimal";
 import { normalizeCurrencyCode } from "../money/currencies";
 
 export type DecimalSeparator = "." | ",";
@@ -26,8 +26,9 @@ export function parseAmount(raw: string | number | null | undefined, hint?: Deci
   if (raw === null || raw === undefined) return null;
   if (typeof raw === "number") {
     if (!Number.isFinite(raw)) return null;
-    // Spreadsheet cells: use the shortest round-trip representation.
-    return { amount: toPlain(String(raw)) };
+    // Spreadsheet cells: shortest round-trip representation, expanded from exponent
+    // notation (1e-7, 1e21) without passing through further float arithmetic.
+    return { amount: toPlain(new D(raw)) };
   }
   let s = raw.trim();
   if (!s) return null;

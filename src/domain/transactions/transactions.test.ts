@@ -91,6 +91,18 @@ describe("transfer matching", () => {
     expect(r[0]).toMatchObject({ outgoingId: "out", incomingId: "in", confidence: "medium" });
   });
 
+  it("ignores cross-currency coincidences without transfer wording on both sides", () => {
+    const fx = new FxTable([{ base: "EUR", quote: "BRL", asOf: "2026-03-01", rate: "6.10", source: "t" }]);
+    const r = matchTransfers(
+      [
+        tx({ id: "out", accountId: "n26", amount: "-42.50", currency: "EUR", bookedOn: "2026-03-02", description: "ESSELUNGA" }),
+        tx({ id: "in", accountId: "nu", amount: "259.25", currency: "BRL", bookedOn: "2026-03-02", description: "Pix recebido Maria" }),
+      ],
+      { fx },
+    );
+    expect(r).toEqual([]);
+  });
+
   it("does not pair within the same account or with mismatched amounts", () => {
     expect(
       matchTransfers([
@@ -133,6 +145,17 @@ describe("recurring detection", () => {
     expect(r).toHaveLength(1);
     expect(r[0]).toMatchObject({ cadence: "monthly", isSubscription: true, nextExpectedOn: "2026-05-05", lastAmount: "44.9", previousAmount: "39.9" });
     expect(Number(r[0]?.lastChange)).toBeCloseTo(0.1253, 3);
+    expect(r[0]?.changedOn).toBe("2026-04-05");
+  });
+
+  it("finds a price change even when it happened several charges ago", () => {
+    const r = detectRecurring([
+      monthly("1", "2026-01-05", "-13.99"),
+      monthly("2", "2026-02-05", "-13.99"),
+      monthly("3", "2026-03-05", "-15.99"),
+      monthly("4", "2026-04-05", "-15.99"),
+    ]);
+    expect(r[0]).toMatchObject({ previousAmount: "13.99", lastAmount: "15.99", changedOn: "2026-03-05" });
   });
 
   it("ignores irregular or too-few payments and transfers", () => {

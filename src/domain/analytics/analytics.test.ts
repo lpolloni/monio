@@ -36,6 +36,7 @@ describe("cash flow", () => {
     flow({ id: "dup", bookedOn: "2026-01-11", amount: "-120", duplicateOf: "food" }),
     flow({ id: "pending", bookedOn: "2026-01-11", amount: "-60", status: "pending" }),
     flow({ id: "biz", bookedOn: "2026-01-11", amount: "5000", entityKind: "business" }),
+    flow({ id: "invest", bookedOn: "2026-01-16", amount: "-700", categorySlug: "investment", categoryKind: "transfer" }),
   ];
 
   it("excludes transfers, card payments, duplicates, pending and business rows", () => {
@@ -44,7 +45,7 @@ describe("cash flow", () => {
     // 900 + 20 (120 BRL @ 6) - 20 refund
     expect(r.expenses).toBe("900");
     expect(r.net).toBe("2100");
-    expect(r.excludedTransfers).toBe(2);
+    expect(r.excludedTransfers).toBe(3);
   });
 
   it("converts each transaction at its own date", () => {

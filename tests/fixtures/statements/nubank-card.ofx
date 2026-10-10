@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?OFX OFXHEADER="200" VERSION="211" SECURITY="NONE" OLDFILEUID="NONE" NEWFILEUID="NONE"?>
+<!-- Synthetic test data: fictional account, cardholder and transactions. -->
+<OFX>
+  <SIGNONMSGSRSV1>
+    <SONRS>
+      <STATUS><CODE>0</CODE><SEVERITY>INFO</SEVERITY></STATUS>
+      <DTSERVER>20260405100000</DTSERVER>
+      <LANGUAGE>POR</LANGUAGE>
+      <FI><ORG>NU PAGAMENTOS S.A.</ORG><FID>260</FID></FI>
+    </SONRS>
+  </SIGNONMSGSRSV1>
+  <CREDITCARDMSGSRSV1>
+    <CCSTMTTRNRS>
+      <TRNUID>1</TRNUID>
+      <STATUS><CODE>0</CODE><SEVERITY>INFO</SEVERITY></STATUS>
+      <CCSTMTRS>
+        <CURDEF>BRL</CURDEF>
+        <CCACCTFROM><ACCTID>0000-0000-0000-4321</ACCTID></CCACCTFROM>
+        <BANKTRANLIST>
+          <DTSTART>20260301000000[-3:BRT]</DTSTART>
+          <DTEND>20260331000000[-3:BRT]</DTEND>
+          <STMTTRN>
+            <TRNTYPE>DEBIT</TRNTYPE>
+            <DTPOSTED>20260302000000[-3:BRT]</DTPOSTED>
+            <TRNAMT>-39.90</TRNAMT>
+            <FITID>card-0001</FITID>
+            <NAME>Netflix.com</NAME>
+            <MEMO></MEMO>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DEBIT</TRNTYPE>
+            <DTPOSTED>20260303000000[-3:BRT]</DTPOSTED>
+            <TRNAMT>-21.90</TRNAMT>
+            <FITID>card-0002</FITID>
+            <NAME>Spotify</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DEBIT</TRNTYPE>
+            <DTPOSTED>20260307000000[-3:BRT]</DTPOSTED>
+            <DTUSER>20260306000000[-3:BRT]</DTUSER>
+            <TRNAMT>-54.35</TRNAMT>
+            <FITID>card-0003</FITID>
+            <NAME>Steam Purchase</NAME>
+            <ORIGCURRENCY><CURRATE>5.435</CURRATE><CURSYM>USD</CURSYM></ORIGCURRENCY>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DEBIT</TRNTYPE>
+            <DTPOSTED>20260308000000[-3:BRT]</DTPOSTED>
+            <TRNAMT>-18.00</TRNAMT>
+            <FITID>card-0004</FITID>
+            <NAME>Padaria &amp; Caf&#233; Exemplo</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>CREDIT</TRNTYPE>
+            <DTPOSTED>20260310000000[-3:BRT]</DTPOSTED>
+            <TRNAMT>1234.56</TRNAMT>
+            <FITID>card-0005</FITID>
+            <NAME>Pagamento recebido</NAME>
+          </STMTTRN>
+        </BANKTRANLIST>
+        <LEDGERBAL><BALAMT>-512.30</BALAMT><DTASOF>20260331000000[-3:BRT]</DTASOF></LEDGERBAL>
+      </CCSTMTRS>
+    </CCSTMTTRNRS>
+  </CREDITCARDMSGSRSV1>
+</OFX>

@@ -41,6 +41,8 @@ describe("parseAmount", () => {
 
   it("accepts spreadsheet numbers", () => {
     expect(parseAmount(-1234.5)?.amount).toBe("-1234.5");
+    expect(parseAmount(1e-7)?.amount).toBe("0.0000001");
+    expect(parseAmount(1e21)?.amount).toBe("1000000000000000000000");
   });
 
   it("infers the decimal separator of a column", () => {

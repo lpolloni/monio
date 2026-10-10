@@ -1,0 +1,7 @@
+"Date","Payee","Account number","Transaction type","Payment reference","Amount (EUR)","Amount (Foreign Currency)","Type Foreign Currency","Exchange Rate"
+"2026-03-01","Datore di Lavoro Fittizio S.r.l.","IT60X0542811101000000123456","Income","Stipendio marzo 2026","2500.00","","",""
+"2026-03-02","Spotify","","MasterCard Payment","","-10.99","","",""
+"2026-03-03","Netflix","","MasterCard Payment","","-12.99","","",""
+"2026-03-04","AMAZON MKTPLACE US","","MasterCard Payment","","-23.00","-25.00","USD","1.0869565"
+"2026-03-05","Mario Fittizio","LT000000000000000001","Outgoing Transfer","Bonifico a Revolut - conto proprio","-300.00","","",""
+"2026-03-06","Supermercato Esempio","","MasterCard Payment","","-56.70","","",""

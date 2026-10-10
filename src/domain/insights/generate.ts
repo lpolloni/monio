@@ -36,6 +36,8 @@ export interface InsightInput {
   /** Two or more net-worth points; first = start of comparison window, last = now. */
   netWorthWindow: NetWorthPoint[];
   thresholds?: { minCategoryDelta?: string; minCategoryChangePct?: number };
+  /** Extra traceability added to month-comparison evidence (e.g. accounts left out for incomplete data). */
+  coverageEvidence?: Record<string, unknown>;
 }
 
 function pct(previous: string, current: string): number | null {
@@ -95,7 +97,7 @@ export function generateInsights(input: InsightInput): InsightDraft[] {
             month: lastComplete,
             previousMonth: prevKey,
           },
-          evidence: { month: lastComplete, previousMonth: prevKey, current: c.current, previous: c.previous, currency: input.currency },
+          evidence: { month: lastComplete, previousMonth: prevKey, current: c.current, previous: c.previous, currency: input.currency, ...input.coverageEvidence },
           fingerprint: `category_spend_change|${lastComplete}|${c.key}`,
         });
       }
@@ -112,7 +114,7 @@ export function generateInsights(input: InsightInput): InsightDraft[] {
           periodStart: monthStart(lastComplete),
           periodEnd: monthEnd(lastComplete),
           params: { month: lastComplete, net: toScale(totals.net, 2), currency: input.currency },
-          evidence: { ...totals, currency: input.currency },
+          evidence: { ...totals, currency: input.currency, ...input.coverageEvidence },
           fingerprint: `negative_cashflow|${lastComplete}`,
         });
       } else if (rate >= 10) {
@@ -122,7 +124,7 @@ export function generateInsights(input: InsightInput): InsightDraft[] {
           periodStart: monthStart(lastComplete),
           periodEnd: monthEnd(lastComplete),
           params: { month: lastComplete, rate, net: toScale(totals.net, 2), currency: input.currency },
-          evidence: { ...totals, currency: input.currency },
+          evidence: { ...totals, currency: input.currency, ...input.coverageEvidence },
           fingerprint: `savings_rate|${lastComplete}`,
         });
       }
@@ -131,12 +133,15 @@ export function generateInsights(input: InsightInput): InsightDraft[] {
 
   // 3. Subscription price changes (latest charge vs. the previous one).
   for (const s of input.recurring) {
-    if (!s.isSubscription || !s.previousAmount || !s.lastChange) continue;
+    if (!s.isSubscription || !s.previousAmount || !s.lastChange || !s.changedOn) continue;
+    // Only recent changes are news.
+    if (s.changedOn < addDaysIso(input.today, -75)) continue;
     const change = Number(dec(s.lastChange).times(100).toFixed(1));
     if (Math.abs(change) < 1) continue;
     out.push({
       kind: "subscription_price_change",
       severity: change > 0 ? "warning" : "positive",
+      periodStart: s.changedOn,
       periodEnd: s.lastSeenOn,
       params: {
         merchant: s.merchant,
@@ -146,7 +151,7 @@ export function generateInsights(input: InsightInput): InsightDraft[] {
         changePct: change,
       },
       evidence: { seriesKey: s.key, seriesId: s.id ?? null, transactionIds: s.transactionIds.slice(-2) },
-      fingerprint: `subscription_price_change|${s.key}|${s.lastSeenOn}`,
+      fingerprint: `subscription_price_change|${s.key}|${s.changedOn}`,
     });
   }
 

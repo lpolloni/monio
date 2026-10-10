@@ -151,9 +151,12 @@ export function matchTransfers(
         continue;
       }
       const isCard = i.accountType === "credit_card";
-      const keyword = isCard
-        ? hasKeyword(o.description, CARD_PAYMENT_KEYWORDS) || hasKeyword(i.description, CARD_PAYMENT_KEYWORDS)
-        : hasKeyword(o.description, TRANSFER_KEYWORDS) || hasKeyword(i.description, TRANSFER_KEYWORDS);
+      const words = isCard ? CARD_PAYMENT_KEYWORDS : TRANSFER_KEYWORDS;
+      const outWords = hasKeyword(o.description, words);
+      const inWords = hasKeyword(i.description, words);
+      const keyword = outWords || inWords;
+      // Converted amounts match by coincidence too often: require transfer wording on both sides.
+      if (o.currency !== i.currency && !(outWords && inWords)) continue;
       if (keyword) reasons.push("transfer wording");
       reasons.push(gap === 0 ? "same day" : `${gap} day(s) apart`);
       const score = 0.55 * amountScore + 0.25 * (1 - gap / (maxGap + 1)) + (keyword ? 0.2 : 0);

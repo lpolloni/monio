@@ -30,8 +30,10 @@ export interface RecurringSeriesCandidate {
   averageAmount: string;
   lastAmount: string;
   previousAmount: string | null;
-  /** Relative change of the latest amount vs. the previous one (e.g. 0.1 = +10%). */
+  /** Relative change of the latest amount vs. the previous different amount (e.g. 0.1 = +10%). */
   lastChange: string | null;
+  /** Date of the first charge at the current amount, when the amount changed. */
+  changedOn: string | null;
   isSubscription: boolean;
   confidence: number;
 }
@@ -104,10 +106,14 @@ export function detectRecurring(transactions: RecurringInput[], options: { asOf?
     if (maxDev.greaterThan(0.35)) continue; // amounts too irregular to be a recurring payment
 
     const last = list[list.length - 1]!;
-    const prev = list.length > 1 ? list[list.length - 2]! : null;
     const lastAmount = dec(last.amount).abs();
+    // Most recent price change: walk back to the last charge with a different amount.
+    let prevIndex = list.length - 2;
+    while (prevIndex >= 0 && dec(list[prevIndex]!.amount).abs().equals(lastAmount)) prevIndex--;
+    const prev = prevIndex >= 0 ? list[prevIndex]! : null;
     const prevAmount = prev ? dec(prev.amount).abs() : null;
     const change = prevAmount && !prevAmount.isZero() ? lastAmount.minus(prevAmount).dividedBy(prevAmount) : null;
+    const changedOn = prev ? list[prevIndex + 1]!.bookedOn : null;
 
     const nextExpectedOn =
       match.cadence === "monthly"
@@ -135,6 +141,7 @@ export function detectRecurring(transactions: RecurringInput[], options: { asOf?
       lastAmount: toPlain(lastAmount),
       previousAmount: prevAmount ? toPlain(prevAmount) : null,
       lastChange: change ? toPlain(change.toDecimalPlaces(4)) : null,
+      changedOn,
       isSubscription: !!category && SUBSCRIPTION_CATEGORIES.has(category) && match.cadence !== "weekly",
       confidence: Math.round(confidence * 1000) / 1000,
     });
