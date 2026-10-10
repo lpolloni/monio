@@ -12,8 +12,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     <AddSheetProvider>
       <div className="aurora" aria-hidden />
       <div className="grain" aria-hidden />
+      <div className="glass fixed inset-x-0 top-0 z-30 h-[env(safe-area-inset-top)]" aria-hidden />
       <div className="relative z-10 flex min-h-dvh flex-col">
-        <header className="sticky top-0 z-30 px-4 pt-[max(env(safe-area-inset-top),0.75rem)] sm:px-6 lg:px-10">
+        <header className="px-4 pt-[max(env(safe-area-inset-top),0.75rem)] sm:px-6 lg:px-10">
           <div className="mx-auto flex h-14 max-w-[1280px] items-center justify-between gap-4">
             <Link href={`/${locale}`} className="shrink-0 rounded-full" aria-label="Monio">
               <Logo />

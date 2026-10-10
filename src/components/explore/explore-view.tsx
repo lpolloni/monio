@@ -8,6 +8,8 @@ import { useLocale, useTranslations } from "use-intl";
 import type { AssetGroup, EntityKind } from "@/domain/accounts/classification";
 import { Money } from "@/components/finance/money";
 import { Badge } from "@/components/ui/primitives";
+import { OptionMenu } from "@/components/ui/option-menu";
+import { SearchField } from "@/components/ui/search-field";
 import { Segmented } from "@/components/ui/segmented";
 import { formatMoney, formatRelative, freshnessOf } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -52,19 +54,33 @@ const TYPE_MATCH: Record<TypeFilter, (a: ExploreAccount) => boolean> = {
   loans: (a) => a.type === "loan" || a.type === "mortgage",
 };
 
+/** Case- and accent-insensitive form used to match the search box. */
+const fold = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
 const COUNTRY_KEYS: Record<string, string> = { BR: "countryBR", IT: "countryIT", DE: "countryDE", LT: "countryLT", BE: "countryBE" };
 
 export function ExploreView({ institutions, currency, now }: { institutions: ExploreInstitution[]; currency: string; now: string }) {
   const t = useTranslations();
   const [type, setType] = useState<TypeFilter>("all");
   const [entity, setEntity] = useState<EntityFilter>("all");
+  const [search, setSearch] = useState("");
 
   const groups = useMemo(() => {
+    const q = fold(search.trim());
     const filtered = institutions
-      .map((inst) => ({
-        ...inst,
-        accounts: inst.accounts.filter((a) => TYPE_MATCH[type](a) && (entity === "all" || a.entityKind === entity)),
-      }))
+      .map((inst) => {
+        // A match on the institution keeps all of its accounts; otherwise match account by account.
+        const instMatch = !q || fold(inst.name).includes(q);
+        return {
+          ...inst,
+          accounts: inst.accounts.filter(
+            (a) =>
+              TYPE_MATCH[type](a) &&
+              (entity === "all" || a.entityKind === entity) &&
+              (instMatch || fold(`${a.name} ${a.mask ?? ""} ${a.holdings.map((h) => h.symbol).join(" ")}`).includes(q)),
+          ),
+        };
+      })
       .filter((inst) => inst.accounts.length > 0);
     const byCountry = new Map<string, ExploreInstitution[]>();
     for (const inst of filtered) {
@@ -76,7 +92,7 @@ export function ExploreView({ institutions, currency, now }: { institutions: Exp
     return [...byCountry.entries()].sort(
       (a, b) => (order.indexOf(a[0]) === -1 ? 99 : order.indexOf(a[0])) - (order.indexOf(b[0]) === -1 ? 99 : order.indexOf(b[0])),
     );
-  }, [institutions, type, entity]);
+  }, [institutions, type, entity, search]);
 
   const countryLabel = (code: string) => {
     if (code === "chain") return t("explore.wallets");
@@ -85,36 +101,43 @@ export function ExploreView({ institutions, currency, now }: { institutions: Exp
     return key ? t(`explore.${key}` as "explore.countryBR") : code;
   };
 
+  const typeOptions: { value: TypeFilter; label: string }[] = [
+    { value: "all", label: t("explore.filterAll") },
+    { value: "banks", label: t("explore.filterBanks") },
+    { value: "cards", label: t("explore.filterCards") },
+    { value: "investments", label: t("explore.filterInvestments") },
+    { value: "crypto", label: t("explore.filterCrypto") },
+    { value: "loans", label: t("explore.filterLoans") },
+  ];
+  const entityOptions: { value: EntityFilter; label: string }[] = [
+    { value: "all", label: t("explore.allEntities") },
+    { value: "personal", label: t("common.personal") },
+    { value: "business", label: t("common.business") },
+    { value: "shared", label: t("common.shared") },
+  ];
+
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="-mx-4 overflow-x-auto px-4 scrollbar-none sm:mx-0 sm:px-0">
-          <Segmented
-            label={t("common.filters")}
-            value={type}
-            onChange={setType}
-            options={[
-              { value: "all", label: t("explore.filterAll") },
-              { value: "banks", label: t("explore.filterBanks") },
-              { value: "cards", label: t("explore.filterCards") },
-              { value: "investments", label: t("explore.filterInvestments") },
-              { value: "crypto", label: t("explore.filterCrypto") },
-              { value: "loans", label: t("explore.filterLoans") },
-            ]}
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+        <div className="flex items-center gap-2 xl:max-w-xs xl:flex-1">
+          <SearchField
+            className="min-w-0 flex-1"
+            value={search}
+            onChange={setSearch}
+            label={t("common.search")}
+            placeholder={t("explore.searchPlaceholder")}
+            clearLabel={t("common.clearSearch")}
           />
+          {/* Phones: one button per filter group, on the search row, instead of long pill rows. */}
+          <OptionMenu className="h-11 md:hidden" align="end" label={t("common.type")} value={type} onChange={setType} options={typeOptions} />
+          <OptionMenu className="h-11 md:hidden" align="end" label={t("common.entity")} value={entity} onChange={setEntity} options={entityOptions} />
         </div>
-        <Segmented
-          size="sm"
-          label={t("common.entity")}
-          value={entity}
-          onChange={setEntity}
-          options={[
-            { value: "all", label: t("explore.allEntities") },
-            { value: "personal", label: t("common.personal") },
-            { value: "business", label: t("common.business") },
-            { value: "shared", label: t("common.shared") },
-          ]}
-        />
+        <div className="hidden xl:flex-1 md:block">
+          <Segmented label={t("common.filters")} value={type} onChange={setType} options={typeOptions} />
+        </div>
+        <div className="hidden md:block">
+          <Segmented size="sm" label={t("common.entity")} value={entity} onChange={setEntity} options={entityOptions} />
+        </div>
       </div>
 
       <AnimatePresence mode="popLayout" initial={false}>

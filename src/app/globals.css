@@ -134,6 +134,9 @@
   }
   html {
     -webkit-tap-highlight-color: transparent;
+    /* Installed app feel: no pinch or double-tap zoom (iOS ignores user-scalable=no on its own). */
+    touch-action: pan-x pan-y;
+    -webkit-text-size-adjust: 100%;
     text-rendering: optimizeLegibility;
   }
   body {

@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, LoaderCircle, Search, X } from "lucide-react";
+import { FileText, LoaderCircle, SlidersHorizontal, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
@@ -9,7 +9,9 @@ import { useLocale, useTranslations } from "use-intl";
 import { CategoryPicker, type PickerCategory } from "@/components/finance/category-picker";
 import { Money } from "@/components/finance/money";
 import { TransactionItem } from "@/components/finance/transaction-item";
+import { OptionMenu } from "@/components/ui/option-menu";
 import { Badge } from "@/components/ui/primitives";
+import { SearchField } from "@/components/ui/search-field";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
 import { formatDate, formatMoney, formatNumber } from "@/lib/format";
@@ -39,6 +41,7 @@ export function ActivityView(props: Props) {
   const [pending, startTransition] = useTransition();
   const [search, setSearch] = useState(props.filters.q ?? "");
   const [selected, setSelected] = useState<ActivityRow | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const update = (patch: Record<string, string | undefined>) => {
     const next = new URLSearchParams(params.toString());
@@ -72,40 +75,78 @@ export function ActivityView(props: Props) {
   const dayLabel = (d: string) =>
     d === props.today ? t("activity.today") : d === yesterday ? t("activity.yesterday") : formatDate(d, locale, "weekday");
 
+  const categoryName = (slug: string) => t(`categories.${slug}` as "categories.groceries");
   const activeAccount = props.accounts.find((a) => a.id === props.filters.accountId);
   const activeCategory = props.categories.find((c) => c.id === props.filters.categoryId);
+  const accountText = activeAccount ? accountLabel(activeAccount.institutionName, activeAccount.name) : null;
+  const categoryText =
+    props.filters.categoryId === "uncategorized" ? t("categories.uncategorized") : activeCategory ? categoryName(activeCategory.slug) : null;
+  const filterCount = (accountText ? 1 : 0) + (categoryText ? 1 : 0);
+  const periodOptions: { value: ActivityPeriod; label: string }[] = [
+    { value: "month", label: t("activity.periodThisMonth") },
+    { value: "last_month", label: t("activity.periodLastMonth") },
+    { value: "3m", label: t("activity.period3m") },
+    { value: "12m", label: t("activity.period12m") },
+    { value: "all", label: t("activity.periodAll") },
+  ];
+  const changePeriod = (v: ActivityPeriod) => update({ period: v === "3m" ? undefined : v });
+  const clearAll = () => {
+    setSearch("");
+    update({ account: undefined, category: undefined, q: undefined });
+  };
 
   return (
     <div className="flex flex-col gap-6">
       {/* Filters */}
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <label className="relative flex-1">
-            <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-fg-subtle" />
-            <span className="sr-only">{t("common.search")}</span>
-            <input
+          <div className="flex flex-1 items-center gap-2">
+            <SearchField
+              className="min-w-0 flex-1"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={setSearch}
+              label={t("common.search")}
               placeholder={t("activity.searchPlaceholder")}
-              className="h-11 w-full rounded-full bg-surface pr-4 pl-11 text-[14px] text-fg placeholder:text-fg-subtle hairline outline-none focus-visible:shadow-[0_0_0_3px_var(--accent-soft)]"
+              clearLabel={t("common.clearSearch")}
+              busy={pending}
             />
-          </label>
-          <div className="-mx-4 overflow-x-auto px-4 scrollbar-none lg:mx-0 lg:px-0">
-            <Segmented
+            <OptionMenu
+              className="h-11 md:hidden"
+              align="end"
               label={t("common.period")}
               value={props.filters.period}
-              onChange={(v) => update({ period: v === "3m" ? undefined : v })}
-              options={[
-                { value: "month", label: t("activity.periodThisMonth") },
-                { value: "last_month", label: t("activity.periodLastMonth") },
-                { value: "3m", label: t("activity.period3m") },
-                { value: "12m", label: t("activity.period12m") },
-                { value: "all", label: t("activity.periodAll") },
-              ]}
+              onChange={changePeriod}
+              options={periodOptions}
             />
+            {/* Phones: account and category live in a sheet instead of two cramped selects. */}
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(true)}
+              aria-label={t("common.filters")}
+              className={cn(
+                "relative grid size-11 shrink-0 place-items-center rounded-full hairline transition md:hidden",
+                filterCount > 0 ? "bg-accent-soft text-fg" : "bg-surface text-fg-muted",
+              )}
+            >
+              <SlidersHorizontal className="size-[18px]" />
+              {filterCount > 0 ? (
+                <span className="absolute -top-0.5 -right-0.5 grid size-[18px] place-items-center rounded-full bg-accent text-[10.5px] font-semibold text-bg tabular-nums">
+                  {filterCount}
+                </span>
+              ) : null}
+            </button>
+          </div>
+          <div className="hidden md:block">
+            <Segmented label={t("common.period")} value={props.filters.period} onChange={changePeriod} options={periodOptions} />
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        {filterCount > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 md:hidden">
+            {accountText ? <ActiveChip label={accountText} removeLabel={t("common.clearFilters")} onRemove={() => update({ account: undefined })} /> : null}
+            {categoryText ? <ActiveChip label={categoryText} removeLabel={t("common.clearFilters")} onRemove={() => update({ category: undefined })} /> : null}
+          </div>
+        ) : null}
+        <div className="hidden flex-wrap items-center gap-2 md:flex">
           <select
             aria-label={t("common.account")}
             value={props.filters.accountId ?? ""}
@@ -115,8 +156,7 @@ export function ActivityView(props: Props) {
             <option value="">{t("common.accounts")}: {t("common.all")}</option>
             {props.accounts.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.institutionName ? `${a.institutionName} · ` : ""}
-                {a.name}
+                {accountLabel(a.institutionName, a.name)}
               </option>
             ))}
           </select>
@@ -130,21 +170,18 @@ export function ActivityView(props: Props) {
             <option value="uncategorized">{t("categories.uncategorized")}</option>
             {props.categories.map((c) => (
               <option key={c.id} value={c.id}>
-                {t(`categories.${c.slug}` as "categories.groceries")}
+                {categoryName(c.slug)}
               </option>
             ))}
           </select>
           <AnimatePresence>
-            {activeAccount || activeCategory || props.filters.q ? (
+            {filterCount > 0 || props.filters.q ? (
               <motion.button
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
                 type="button"
-                onClick={() => {
-                  setSearch("");
-                  update({ account: undefined, category: undefined, q: undefined });
-                }}
+                onClick={clearAll}
                 className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] text-fg-muted transition hover:text-fg"
               >
                 <X className="size-3.5" />
@@ -152,9 +189,60 @@ export function ActivityView(props: Props) {
               </motion.button>
             ) : null}
           </AnimatePresence>
-          {pending ? <LoaderCircle className="size-4 animate-spin text-fg-subtle" /> : null}
         </div>
       </div>
+
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen} title={t("common.filters")} closeLabel={t("common.close")}>
+        <div className={cn("flex flex-col gap-6 transition-opacity", pending && "opacity-70")}>
+          <div>
+            <h3 className="mb-2.5 text-[13px] font-medium uppercase tracking-[0.14em] text-fg-subtle">{t("common.account")}</h3>
+            <div role="radiogroup" aria-label={t("common.account")} className="flex flex-wrap gap-2">
+              <Choice active={!props.filters.accountId} onClick={() => update({ account: undefined })}>
+                {t("common.all")}
+              </Choice>
+              {props.accounts.map((a) => (
+                <Choice key={a.id} active={a.id === props.filters.accountId} onClick={() => update({ account: a.id })}>
+                  {accountLabel(a.institutionName, a.name)}
+                </Choice>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h3 className="mb-2.5 text-[13px] font-medium uppercase tracking-[0.14em] text-fg-subtle">{t("common.category")}</h3>
+            <div role="radiogroup" aria-label={t("common.category")} className="flex flex-wrap gap-2">
+              <Choice active={!props.filters.categoryId} onClick={() => update({ category: undefined })}>
+                {t("common.all")}
+              </Choice>
+              <Choice active={props.filters.categoryId === "uncategorized"} onClick={() => update({ category: "uncategorized" })}>
+                {t("categories.uncategorized")}
+              </Choice>
+              {props.categories.map((c) => (
+                <Choice key={c.id} active={c.id === props.filters.categoryId} onClick={() => update({ category: c.id })}>
+                  {categoryName(c.slug)}
+                </Choice>
+              ))}
+            </div>
+          </div>
+          <div className="sticky bottom-0 -mx-6 -mb-8 flex items-center gap-2 bg-bg-elevated px-6 pt-3 pb-safe">
+            {filterCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => update({ account: undefined, category: undefined })}
+                className="h-11 rounded-full px-4 text-[14px] text-fg-muted transition hover:text-fg"
+              >
+                {t("common.clearFilters")}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(false)}
+              className="h-11 flex-1 rounded-full bg-fg px-5 text-[14px] font-medium text-bg transition active:scale-[0.98]"
+            >
+              {t("activity.showResults", { count: props.total })}
+            </button>
+          </div>
+        </div>
+      </Sheet>
 
       {/* Summary */}
       <div className="grid grid-cols-3 gap-2 rounded-[1.5rem] bg-bg-elevated/70 p-2 hairline sm:max-w-xl">
@@ -178,7 +266,7 @@ export function ActivityView(props: Props) {
         ) : (
           groups.map(([day, rows]) => (
             <section key={day} className="mb-2">
-              <h3 className="sticky top-[4.5rem] z-10 -mx-2 mb-1 bg-bg/85 px-2 py-2 text-[12.5px] font-medium text-fg-subtle backdrop-blur-md first-letter:uppercase">
+              <h3 className="sticky top-[env(safe-area-inset-top)] z-10 -mx-2 mb-1 bg-bg/85 px-2 py-2 text-[12.5px] font-medium text-fg-subtle backdrop-blur-md first-letter:uppercase">
                 {dayLabel(day)}
               </h3>
               <div className="-mx-2 flex flex-col">
@@ -204,6 +292,38 @@ export function ActivityView(props: Props) {
 
       <TransactionDetail row={selected} categories={props.categories} onClose={() => setSelected(null)} />
     </div>
+  );
+}
+
+/** One option of a filter group in the mobile filter sheet. */
+function Choice({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onClick}
+      className={cn(
+        "min-h-10 max-w-full truncate rounded-full px-4 text-[14px] transition hairline",
+        active ? "bg-accent-soft font-medium text-fg" : "bg-surface text-fg-muted",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ActiveChip({ label, removeLabel, onRemove }: { label: string; removeLabel: string; onRemove: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onRemove}
+      aria-label={`${removeLabel}: ${label}`}
+      className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-accent-soft pr-2.5 pl-3 text-[13px] text-fg"
+    >
+      <span className="truncate">{label}</span>
+      <X className="size-3.5 shrink-0 text-fg-muted" />
+    </button>
   );
 }
 

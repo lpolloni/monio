@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, ArrowUpRight, Building, ChevronRight, Network, Rows3, Sparkles, X } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Building, ChevronDown, ChevronRight, Network, Rows3, Sparkles, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useOptimistic, useState, useTransition } from "react";
@@ -8,6 +8,7 @@ import { useLocale, useTranslations } from "use-intl";
 import type { AssetGroup, EntityKind } from "@/domain/accounts/classification";
 import { DISPLAY_CURRENCIES } from "@/domain/money/currencies";
 import { AnimatedMoney } from "@/components/ui/animated-money";
+import { OptionMenu } from "@/components/ui/option-menu";
 import { Segmented } from "@/components/ui/segmented";
 import { Badge, SectionHeader } from "@/components/ui/primitives";
 import { InsightSentence, type InsightData } from "@/components/finance/insight-sentence";
@@ -94,6 +95,16 @@ export function HomeView({ model }: { model: HomeViewModel }) {
   const inlineNode = isDesktop ? selectedNode : null;
   const firstName = model.displayName?.split(" ")[0];
 
+  const monthBlock = (
+    <>
+      <MonthFlow month={model.month} currency={model.currency} />
+      {model.businessEntities.length > 0 ? (
+        <BusinessNote entities={model.businessEntities} currency={model.currency} include={model.includeBusiness} />
+      ) : null}
+      {model.unvaluedCount > 0 ? <p className="text-xs text-fg-subtle">{t("home.unvalued", { count: model.unvaluedCount })}</p> : null}
+    </>
+  );
+
   return (
     <div className="flex flex-col gap-12 lg:gap-16">
       {/* Hero */}
@@ -131,9 +142,11 @@ export function HomeView({ model }: { model: HomeViewModel }) {
               </motion.div>
             )}
           </AnimatePresence>
+          {/* Phones and tablets: this month comes after the constellation, not before it. */}
+          <div className="mt-8 flex flex-col gap-7 lg:hidden">{monthBlock}</div>
         </div>
 
-        <div className="order-1 min-h-[22rem] lg:order-2">
+        <div className="order-1 lg:order-2 lg:min-h-[22rem]">
           <AnimatePresence mode="wait" initial={false}>
             {inlineNode ? (
               <InstitutionPanel
@@ -161,18 +174,12 @@ export function HomeView({ model }: { model: HomeViewModel }) {
                   </p>
                   <div className="mt-5 flex flex-wrap items-center gap-3">
                     <span className="text-[13px] font-medium uppercase tracking-[0.16em] text-fg-subtle">{t("home.netWorth")}</span>
-                    <Segmented
-                      size="sm"
-                      label={t("common.currency")}
-                      value={currency}
-                      onChange={changeCurrency}
-                      options={DISPLAY_CURRENCIES.map((c) => ({ value: c, label: c }))}
-                    />
+                    <OptionMenu className="h-8" label={t("common.currency")} value={currency} onChange={changeCurrency} options={DISPLAY_CURRENCIES.map((c) => ({ value: c, label: c }))} />
                   </div>
                   <h1 className={cn("mt-2 font-display text-[3.1rem] leading-[1] tracking-[-0.02em] text-fg transition-opacity sm:text-[4.2rem]", pending && "opacity-60")}>
                     <AnimatedMoney amount={model.netWorth} currency={model.currency} locale={locale} />
                   </h1>
-                  <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-[14px]">
+                  <div className="mt-4 flex justify-between gap-3 text-[13px] sm:flex-wrap sm:justify-start sm:gap-x-6 sm:gap-y-2 sm:text-[14px]">
                     <Stat label={t("home.available")} amount={model.available} currency={model.currency} />
                     <Stat label={t("home.assets")} amount={model.assets} currency={model.currency} />
                     <Stat label={t("home.liabilities")} amount={model.liabilities} currency={model.currency} negative />
@@ -181,12 +188,7 @@ export function HomeView({ model }: { model: HomeViewModel }) {
 
                 <DistributionBar groups={model.groups} />
 
-                <MonthFlow month={model.month} currency={model.currency} />
-
-                {model.businessEntities.length > 0 ? (
-                  <BusinessNote entities={model.businessEntities} currency={model.currency} include={model.includeBusiness} />
-                ) : null}
-                {model.unvaluedCount > 0 ? <p className="text-xs text-fg-subtle">{t("home.unvalued", { count: model.unvaluedCount })}</p> : null}
+                <div className="hidden flex-col gap-7 lg:flex">{monthBlock}</div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -217,16 +219,7 @@ export function HomeView({ model }: { model: HomeViewModel }) {
 
       {/* Below the fold */}
       <section className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-12">
-        <div>
-          <SectionHeader
-            title={t("home.recentActivity")}
-            action={
-              <Link href={`/${locale}/activity`} className="flex items-center gap-1 text-[13px] text-fg-muted transition hover:text-fg">
-                {t("common.seeAll")}
-                <ChevronRight className="size-4" />
-              </Link>
-            }
-          />
+        <HomeSection title={t("home.recentActivity")} href={`/${locale}/activity`} linkLabel={t("common.seeAll")}>
           <div className="-mx-2 flex flex-col">
             {model.recent.map((tx, i) => (
               <motion.div key={tx.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.04 * i }}>
@@ -234,37 +227,60 @@ export function HomeView({ model }: { model: HomeViewModel }) {
               </motion.div>
             ))}
           </div>
-        </div>
+        </HomeSection>
         <div className="flex flex-col gap-10">
-          <AttentionList items={model.attention} count={model.attentionCount} />
           {model.insights.length > 0 ? (
-            <div>
-              <SectionHeader
-                title={t("home.insightsTitle")}
-                action={
-                  <Link href={`/${locale}/insights`} className="flex items-center gap-1 text-[13px] text-fg-muted transition hover:text-fg">
-                    {t("common.seeAll")}
-                    <ChevronRight className="size-4" />
-                  </Link>
-                }
-              />
+            <HomeSection title={t("home.insightsTitle")} href={`/${locale}/insights`} linkLabel={t("common.seeAll")}>
               <div className="flex flex-col gap-4">
                 {model.insights.map((insight) => (
                   <InsightSentence key={insight.id} insight={insight} />
                 ))}
               </div>
-            </div>
+            </HomeSection>
           ) : null}
+          <AttentionList items={model.attention} count={model.attentionCount} />
         </div>
       </section>
     </div>
   );
 }
 
+/**
+ * Home section that is a closed disclosure on phones and a plain titled section from `md` up.
+ * Visibility is CSS-driven so the server and client render the same markup.
+ */
+function HomeSection({ title, href, linkLabel, children }: { title: string; href: string; linkLabel: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const link = (
+    <Link href={href} className="flex items-center gap-1 text-[13px] text-fg-muted transition hover:text-fg">
+      {linkLabel}
+      <ChevronRight className="size-4" />
+    </Link>
+  );
+  return (
+    <div>
+      <SectionHeader title={title} action={link} className="hidden md:flex" />
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 rounded-[1.5rem] bg-bg-elevated/75 px-5 py-4 text-left hairline md:hidden"
+      >
+        <span className="text-[13px] font-medium uppercase tracking-[0.14em] text-fg-subtle">{title}</span>
+        <ChevronDown className={cn("size-4 shrink-0 text-fg-subtle transition-transform", open && "rotate-180")} />
+      </button>
+      <div className={cn("md:block", open ? "pt-3 md:pt-0" : "hidden")}>
+        {children}
+        <div className="mt-3 flex justify-end md:hidden">{link}</div>
+      </div>
+    </div>
+  );
+}
+
 function Stat({ label, amount, currency, negative }: { label: string; amount: string; currency: string; negative?: boolean }) {
   return (
-    <span className="flex items-baseline gap-2">
-      <span className="text-fg-subtle">{label}</span>
+    <span className="flex min-w-0 flex-col gap-0.5 whitespace-nowrap sm:flex-row sm:items-baseline sm:gap-2">
+      <span className="text-[12px] text-fg-subtle sm:text-[14px]">{label}</span>
       <Money amount={negative && amount !== "0" ? `-${amount}` : amount} currency={currency} className={cn("font-medium", negative ? "text-negative" : "text-fg")} />
     </span>
   );

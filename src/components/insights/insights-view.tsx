@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -8,7 +8,6 @@ import { useLocale, useTranslations } from "use-intl";
 import { AreaTrend } from "@/components/charts/area-trend";
 import { categoryHue, CategoryIcon } from "@/components/finance/category-icon";
 import { InsightSentence } from "@/components/finance/insight-sentence";
-import { SectionHeader } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/segmented";
 import { formatDate, formatMoney, formatMonth } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -44,6 +43,7 @@ export function InsightsView({ data }: { data: InsightsPageData }) {
 
   // The same wealth at today's rates: off until asked for, as it only matters with foreign currencies.
   const [fxLine, setFxLine] = useState(false);
+  const [observationsOpen, setObservationsOpen] = useState(false);
   const nwData = data.netWorth.map((p) => ({
     date: p.date,
     value: Number(p.netWorth), // drawing only
@@ -61,23 +61,10 @@ export function InsightsView({ data }: { data: InsightsPageData }) {
     .filter((g) => g.value > 0);
   const groupTotal = groups.reduce((s, g) => s + g.value, 0) || 1;
   const monthOptions = data.months.slice(-6).map((m) => ({ value: m, label: formatMonth(m, locale, "short") }));
+  const monthIndex = monthOptions.findIndex((m) => m.value === month);
 
   return (
     <div className="flex flex-col gap-10">
-      {/* Observations */}
-      <section>
-        <SectionHeader title={t("insights.observations")} />
-        {data.insights.length === 0 ? (
-          <p className="text-[14px] text-fg-muted">{t("insights.noInsights")}</p>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {data.insights.map((insight) => (
-              <ObservationCard key={insight.id} insight={insight} />
-            ))}
-          </div>
-        )}
-      </section>
-
       {/* Net worth evolution */}
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
         <Card>
@@ -217,7 +204,31 @@ export function InsightsView({ data }: { data: InsightsPageData }) {
                   { value: "income", label: t("home.income") },
                 ]}
               />
-              <div className="-mx-1 overflow-x-auto px-1 scrollbar-none">
+              {/* Phones: six month pills do not fit, so step through them instead. */}
+              <div className="flex h-9 items-center rounded-full bg-surface-2 p-1 hairline md:hidden">
+                <button
+                  type="button"
+                  onClick={() => setMonth(monthOptions[monthIndex - 1]!.value)}
+                  disabled={monthIndex <= 0}
+                  aria-label={t("insights.previousMonth")}
+                  className="grid size-7 place-items-center rounded-full text-fg-muted transition active:bg-bg-elevated disabled:opacity-30"
+                >
+                  <ChevronLeft className="size-4" />
+                </button>
+                <span aria-live="polite" className="min-w-[6.5rem] px-1 text-center text-[13px] font-medium text-fg first-letter:uppercase">
+                  {formatMonth(month, locale, "long")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMonth(monthOptions[monthIndex + 1]!.value)}
+                  disabled={monthIndex < 0 || monthIndex >= monthOptions.length - 1}
+                  aria-label={t("insights.nextMonth")}
+                  className="grid size-7 place-items-center rounded-full text-fg-muted transition active:bg-bg-elevated disabled:opacity-30"
+                >
+                  <ChevronRight className="size-4" />
+                </button>
+              </div>
+              <div className="hidden md:block">
                 <Segmented size="sm" label={t("common.period")} value={month} onChange={setMonth} options={monthOptions} />
               </div>
             </div>
@@ -269,6 +280,46 @@ export function InsightsView({ data }: { data: InsightsPageData }) {
           <p className="mt-3 text-[12.5px] text-fg-subtle">{t("explore.costBasisUnknown")}</p>
         </Card>
       ) : null}
+
+      {/* Observations */}
+      <section>
+        <button
+          type="button"
+          onClick={() => setObservationsOpen((v) => !v)}
+          aria-expanded={observationsOpen}
+          aria-controls="insights-observations"
+          className="flex w-full items-center justify-between gap-3 rounded-[1.5rem] bg-bg-elevated/75 px-5 py-4 text-left hairline transition hover:bg-bg-elevated"
+        >
+          <span className="flex items-center gap-2.5">
+            <span className="text-[13px] font-medium uppercase tracking-[0.14em] text-fg-subtle">{t("insights.observations")}</span>
+            {data.insights.length > 0 ? (
+              <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11.5px] font-medium text-accent tabular-nums">{data.insights.length}</span>
+            ) : null}
+          </span>
+          <ChevronDown className={cn("size-4 shrink-0 text-fg-subtle transition-transform", observationsOpen && "rotate-180")} />
+        </button>
+        <AnimatePresence initial={false}>
+          {observationsOpen ? (
+            <motion.div
+              id="insights-observations"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              {data.insights.length === 0 ? (
+                <p className="px-1 pt-3 text-[14px] text-fg-muted">{t("insights.noInsights")}</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 pt-3 lg:grid-cols-2">
+                  {data.insights.map((insight) => (
+                    <ObservationCard key={insight.id} insight={insight} />
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </section>
       <p className="text-[12px] text-fg-subtle">{formatDate(data.today, locale, "long")}</p>
     </div>
   );

@@ -5,13 +5,15 @@ test.describe("money views", () => {
     await page.goto("/en");
     const hero = page.getByRole("heading", { level: 1 });
     await expect(hero).toContainText("€");
-    await page.getByRole("radio", { name: "BRL" }).first().click();
+    await page.getByRole("button", { name: /^Currency:/ }).click();
+    await page.getByRole("menuitemradio", { name: "BRL" }).click();
     await expect(hero).toContainText("R$", { timeout: 20_000 });
     await page.goto("/en/activity?q=Netflix&period=all");
     // Original amounts stay in their own currency.
     await expect(page.getByText("-€15.99").first()).toBeVisible();
     await page.goto("/en");
-    await page.getByRole("radio", { name: "EUR" }).first().click();
+    await page.getByRole("button", { name: /^Currency:/ }).click();
+    await page.getByRole("menuitemradio", { name: "EUR" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toContainText("€", { timeout: 20_000 });
   });
 
@@ -76,6 +78,7 @@ test.describe("money views", () => {
 
   test("insights show evidence-backed observations", async ({ page }) => {
     await page.goto("/en/insights");
+    await page.getByRole("button", { name: /Observations/ }).click();
     await expect(page.getByText(/Netflix changed its price/).first()).toBeVisible();
     await page.getByRole("button", { name: "Evidence" }).first().click();
     await expect(page.locator("pre").first()).toBeVisible();

@@ -29,7 +29,7 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
             aria-label={option.ariaLabel}
             onClick={() => onChange(option.value)}
             className={cn(
-              "relative z-0 rounded-full font-medium transition-colors",
+              "relative z-0 shrink-0 rounded-full font-medium whitespace-nowrap transition-colors",
               size === "sm" ? "h-7 px-3 text-xs" : "h-8 px-3.5 text-[13px]",
               active ? "text-fg" : "text-fg-muted hover:text-fg",
             )}
