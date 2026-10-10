@@ -3,7 +3,7 @@
 import { ArrowRight, LoaderCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { useLocale, useTranslations } from "use-intl";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/primitives";
@@ -16,9 +16,16 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
   const router = useRouter();
   const params = useSearchParams();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
+  // Inputs are uncontrolled so text typed before hydration is kept; values are read on submit.
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  // Until hydrated, submitting would fall back to a native form submission; keep the button disabled.
+  const hydrated = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +37,9 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    const email = emailRef.current?.value ?? "";
+    const password = passwordRef.current?.value ?? "";
+    const name = nameRef.current?.value ?? "";
     setPending(true);
     setError(null);
     const supabase = createBrowserSupabase();
@@ -51,7 +61,7 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
   }
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-5" noValidate>
+    <form method="post" onSubmit={onSubmit} className="flex flex-col gap-5" noValidate>
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-display text-[2rem] leading-none text-fg">{mode === "signin" ? t("signIn") : t("signUp")}</h2>
         <Segmented
@@ -79,7 +89,7 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
             className="flex flex-col gap-2 overflow-hidden"
           >
             <Label htmlFor="name">{t("displayName")}</Label>
-            <Input id="name" name="name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input ref={nameRef} id="name" name="name" autoComplete="name" />
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -93,8 +103,7 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
           autoComplete="email"
           inputMode="email"
           required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          ref={emailRef}
           aria-invalid={!!error || undefined}
         />
       </div>
@@ -107,8 +116,7 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
           autoComplete={mode === "signin" ? "current-password" : "new-password"}
           required
           minLength={8}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          ref={passwordRef}
           aria-invalid={!!error || undefined}
           aria-describedby={mode === "signup" ? "password-hint" : undefined}
         />
@@ -133,7 +141,7 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
         ) : null}
       </AnimatePresence>
 
-      <Button type="submit" size="lg" disabled={pending} className="mt-1 w-full">
+      <Button type="submit" size="lg" disabled={pending || !hydrated} className="mt-1 w-full">
         {pending ? <LoaderCircle className="animate-spin" /> : null}
         {pending ? (mode === "signin" ? t("signingIn") : t("creating")) : mode === "signin" ? t("signIn") : t("signUp")}
         {!pending ? <ArrowRight /> : null}
@@ -143,8 +151,8 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
         <button
           type="button"
           onClick={() => {
-            setEmail(demo.email);
-            setPassword(demo.password);
+            if (emailRef.current) emailRef.current.value = demo.email;
+            if (passwordRef.current) passwordRef.current.value = demo.password;
           }}
           className="rounded-2xl bg-surface px-4 py-3 text-left text-xs leading-relaxed text-fg-muted hairline transition hover:bg-surface-2"
         >

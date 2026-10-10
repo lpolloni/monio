@@ -45,6 +45,8 @@ async function applyUpdates(db: MonioClient, updates: Record<string, Json>[]) {
   }
 }
 
+const UNCATEGORIZED_BATCH = 8;
+
 async function upsertInbox(
   db: MonioClient,
   userId: string,
@@ -144,6 +146,8 @@ export async function postProcessUser(db: MonioClient, userId: string, options: 
   const updates: Record<string, Json>[] = [];
   const questions: Parameters<typeof upsertInbox>[2] = [];
   const askedPairs = new Set<string>();
+  // Transactions waiting for the user's transfer decision are not asked about again (e.g. as uncategorized).
+  const awaitingTransferDecision = new Set<string>();
   for (const m of matches) {
     const out = txById.get(m.outgoingId)!;
     const inc = txById.get(m.incomingId)!;
@@ -189,8 +193,10 @@ export async function postProcessUser(db: MonioClient, userId: string, options: 
         });
       }
       stats.transfersLinked++;
-    } else if (!askedPairs.has(pairKey)) {
+    } else {
+      awaitingTransferDecision.add(out.id).add(inc.id);
       // One question per account pair; the answer is remembered for future matches.
+      if (askedPairs.has(pairKey)) continue;
       askedPairs.add(pairKey);
       questions.push({
         kind: "transfer_match",
@@ -254,11 +260,10 @@ export async function postProcessUser(db: MonioClient, userId: string, options: 
   // Reflect classification changes locally for the next steps.
   for (const u of updates) {
     const t = txById.get(String(u.id));
-    if (t) {
-      t.classification = String(u.classification);
-      t.transferGroupId = String(u.transfer_group_id);
-      t.categoryId = (u.category_id as string | null) ?? t.categoryId;
-    }
+    if (!t) continue;
+    if (typeof u.classification === "string") t.classification = u.classification;
+    if (typeof u.transfer_group_id === "string") t.transferGroupId = u.transfer_group_id;
+    if ("category_id" in u) t.categoryId = (u.category_id as string | null) ?? t.categoryId;
   }
   transactions = [...txById.values()];
 
@@ -348,11 +353,38 @@ export async function postProcessUser(db: MonioClient, userId: string, options: 
   await applyUpdates(db, defaults);
 
   // 4b. Uncategorized expenses worth asking about (largest first, a handful at a time).
+  // Questions that no longer apply (categorized meanwhile) are closed; at most
+  // UNCATEGORIZED_BATCH stay open so re-runs never flood the inbox.
+  const { data: askedUncategorized } = await db
+    .from("inbox_items")
+    .select("id, status, transaction_ids")
+    .eq("user_id", userId)
+    .eq("kind", "uncategorized")
+    .limit(5000);
+  const alreadyAsked = new Set<string>();
+  const obsolete: string[] = [];
+  let openUncategorized = 0;
+  for (const item of askedUncategorized ?? []) {
+    const txId = item.transaction_ids[0];
+    if (txId) alreadyAsked.add(txId);
+    if (item.status !== "open") continue;
+    const tx = txId ? txById.get(txId) : undefined;
+    if (!tx || tx.categoryId || tx.classification !== "regular" || tx.duplicateOf) obsolete.push(item.id);
+    else openUncategorized++;
+  }
+  if (obsolete.length) {
+    const { error } = await db
+      .from("inbox_items")
+      .update({ status: "resolved", resolved_at: new Date().toISOString(), resolution: { decision: "auto", reason: "no_longer_applies" } })
+      .in("id", obsolete)
+      .eq("user_id", userId);
+    if (error) throw error;
+  }
   const uncategorized = transactions
     .filter((t) => !t.categoryId && t.classification === "regular" && !t.duplicateOf && t.amount.startsWith("-"))
-    .filter((t) => !scope || scope.has(t.id))
+    .filter((t) => (!scope || scope.has(t.id)) && !alreadyAsked.has(t.id) && !awaitingTransferDecision.has(t.id))
     .sort((a, b) => Number(a.amount) - Number(b.amount)) // ordering only
-    .slice(0, 8);
+    .slice(0, Math.max(0, UNCATEGORIZED_BATCH - openUncategorized));
   for (const t of uncategorized) {
     questions.push({
       kind: "uncategorized",

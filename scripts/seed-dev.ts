@@ -484,8 +484,18 @@ async function seedIsolationUser(userId: string) {
   await admin.from("account_balances").insert({ user_id: userId, account_id: account!.id, as_of: TODAY, balance: dbNumeric("957.90"), currency: "EUR", source: "seed" });
 }
 
+/** Removes throwaway users left behind by interrupted test runs (only the reserved test domain). */
+async function removeTestUsers() {
+  const { data, error } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  if (error) throw error;
+  const leftovers = data.users.filter((u) => u.email?.endsWith("@test.monio.dev"));
+  for (const u of leftovers) await deleteUserCompletely(admin, u.id);
+  if (leftovers.length) console.log(`- removed ${leftovers.length} leftover test user(s)`);
+}
+
 async function main() {
   console.log(`Seeding Monio DEV (fictional data), anchor date ${TODAY}`);
+  await removeTestUsers();
   await seedRates();
   const demoId = await resetUser(DEMO.email, DEMO.name);
   console.log(`- ${DEMO.email}`);

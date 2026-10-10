@@ -47,7 +47,8 @@ export function AnimatedMoney({ amount, currency, locale, className, ...options 
   }, [amount, currency, locale, reduce]);
 
   return (
-    <span className={className} aria-label={exact}>
+    <span className={className}>
+      <span className="sr-only">{exact}</span>
       <span aria-hidden className="tabular">
         {display}
       </span>

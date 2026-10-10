@@ -19,7 +19,8 @@
   --surface-glass: oklch(1 0 0 / 0.72);
   --fg: oklch(0.2 0.02 265);
   --fg-muted: oklch(0.45 0.02 265);
-  --fg-subtle: oklch(0.6 0.015 265);
+  /* Text tokens keep >= 4.5:1 (WCAG AA) on bg, bg-elevated, surface and surface-2. */
+  --fg-subtle: oklch(0.51 0.015 265);
   --border: oklch(0.2 0.02 265 / 0.09);
   --border-strong: oklch(0.2 0.02 265 / 0.16);
   --ring: oklch(0.55 0.17 260);
@@ -27,12 +28,12 @@
   --accent: oklch(0.52 0.2 278);
   --accent-soft: oklch(0.52 0.2 278 / 0.1);
   --accent-fg: oklch(0.99 0 0);
-  --positive: oklch(0.56 0.14 160);
-  --positive-soft: oklch(0.56 0.14 160 / 0.12);
-  --negative: oklch(0.58 0.19 27);
-  --negative-soft: oklch(0.58 0.19 27 / 0.1);
-  --warning: oklch(0.68 0.15 70);
-  --warning-soft: oklch(0.68 0.15 70 / 0.14);
+  --positive: oklch(0.5 0.13 160);
+  --positive-soft: oklch(0.5 0.13 160 / 0.12);
+  --negative: oklch(0.54 0.19 27);
+  --negative-soft: oklch(0.54 0.19 27 / 0.1);
+  --warning: oklch(0.53 0.12 70);
+  --warning-soft: oklch(0.68 0.15 70 / 0.16);
 
   /* Asset-group palette: validated for CVD separation (dataviz validator, light surface). */
   --group-cash: oklch(0.64 0.13 240);
@@ -57,7 +58,7 @@
   --surface-glass: oklch(0.2 0.016 268 / 0.7);
   --fg: oklch(0.965 0.006 268);
   --fg-muted: oklch(0.74 0.016 268);
-  --fg-subtle: oklch(0.58 0.016 268);
+  --fg-subtle: oklch(0.65 0.016 268);
   --border: oklch(1 0 0 / 0.075);
   --border-strong: oklch(1 0 0 / 0.14);
   --ring: oklch(0.78 0.13 250);
