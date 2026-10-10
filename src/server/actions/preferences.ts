@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { DISPLAY_CURRENCIES } from "@/domain/money/currencies";
 import { LOCALES, LOCALE_COOKIE, type Locale } from "@/i18n/config";
+import { createClient } from "../supabase/server";
 import { getSession } from "../data/session";
 
 type ActionResult = { ok: true } | { ok: false; error: "unauthorized" | "validation" | "failed" };
@@ -77,7 +78,8 @@ export async function setLocalePreference(locale: Locale): Promise<ActionResult>
 }
 
 export async function signOut(locale: Locale): Promise<void> {
-  const s = await session();
-  if (s) await s.supabase.auth.signOut();
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signOut({ scope: "local" });
+  if (error) throw new Error("Sign out failed");
   redirect(`/${LOCALES.includes(locale) ? locale : "pt"}/login`);
 }

@@ -70,3 +70,17 @@ The app uses standalone display, existing regular/maskable/Apple icons, and a st
 Only public static assets and a generic pt/en/it offline page enter Cache Storage. Pages, API responses,
 financial data and authentication responses are never cached by the service worker. Offline navigation
 shows a reconnect screen; balances/imports still require internet. Existing tabs may need a reload after an update.
+
+## Private Supabase behind a public Monio tunnel
+
+The browser calls Monio Server Actions for login/signup/logout. Only the Monio server contacts
+the private Supabase URL; no public Supabase hostname is required. Existing NEXT_PUBLIC_SUPABASE_*
+variable names are retained for compatibility but are consumed only on the server.
+Keep the server on the Supabase LAN/VPN. Tunnel forwarding must preserve the public host and
+X-Forwarded-Proto=https so Server Action origin checks and Secure session cookies work.
+Do not expose the origin directly to untrusted traffic that can spoof forwarding headers.
+Do not configure Cloudflare Cache Everything for authenticated pages or APIs.
+Use Cloudflare rate limiting on login POST requests alongside Supabase Auth limits; distributed
+application rate limiting is not added by this change. SMTP and confirmation links must be configured
+separately; existing email confirmation links must return to the public Monio origin rather than a private API.
+Rebuild/restart Monio after updating code. Existing sessions may need a fresh login.

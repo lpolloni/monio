@@ -2,9 +2,12 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { DEFAULT_LOCALE, LOCALE_COOKIE, isLocale, negotiateLocale } from "./i18n/config";
 
+import { sessionCookieOptions } from "./server/supabase/cookie-options";
+
 const PUBLIC_APP_PATHS = ["/login", "/auth"];
 
 function withCookies(target: NextResponse, source: NextResponse): NextResponse {
+  target.headers.set("Cache-Control", "private, no-store");
   for (const cookie of source.cookies.getAll()) target.cookies.set(cookie);
   return target;
 }
@@ -25,7 +28,9 @@ export async function proxy(request: NextRequest) {
   let userId: string | null = null;
 
   if (url && key) {
+    const cookieOptions = sessionCookieOptions(request.headers);
     const supabase = createServerClient(url, key, {
+      cookieOptions,
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -33,7 +38,7 @@ export async function proxy(request: NextRequest) {
         setAll(cookiesToSet) {
           for (const { name, value } of cookiesToSet) request.cookies.set(name, value);
           response = NextResponse.next({ request });
-          for (const { name, value, options } of cookiesToSet) response.cookies.set(name, value, options);
+          for (const { name, value, options } of cookiesToSet) response.cookies.set(name, value, { ...options, ...cookieOptions });
         },
       },
     });
@@ -41,6 +46,7 @@ export async function proxy(request: NextRequest) {
     userId = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
   }
 
+  response.headers.set("Cache-Control", "private, no-store");
   if (pathname.startsWith("/api/")) return response;
 
   const segments = pathname.split("/");

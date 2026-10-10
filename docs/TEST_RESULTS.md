@@ -130,3 +130,9 @@ Santander failure-retention regression (2026-10-10): 709 unit tests / 42 files, 
 ## PWA completion — 2026-10-10
 
 ESLint passed; production build passed including TypeScript. Targeted `tests/unit/service-worker.test.ts`: 3/3 passed (sensitive request bypass, generic navigation fallback, scoped cache deletion). Browser/device installation and offline E2E were not run.
+
+## Private Supabase authentication — 2026-10-10
+
+ESLint, typecheck and production build passed. Unit suite: 718 tests / 45 files passed, including
+6 new tests for input validation, safe action results, email confirmation, backend failures and
+HttpOnly/Secure cookie settings. Public-tunnel browser E2E and DB integration were not run.

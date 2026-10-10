@@ -8,7 +8,7 @@ import { useLocale, useTranslations } from "use-intl";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/segmented";
-import { createBrowserSupabase } from "@/lib/supabase/browser";
+import { authenticate } from "@/server/actions/auth";
 
 export function AuthForm({ demo }: { demo: { email: string; password: string } | null }) {
   const t = useTranslations("auth");
@@ -44,30 +44,21 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
     setPending(true);
     setError(null);
     setNotice(null);
-    const supabase = createBrowserSupabase();
-    const result =
-      mode === "signin"
-        ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
-        : await supabase.auth.signUp({
-            email: email.trim(),
-            password,
-            options: { data: { display_name: name.trim() || undefined, locale } },
-          });
-    if (result.error) {
-      setPending(false);
-      setError(
-        result.error.message === "Error sending confirmation email"
-          ? t("confirmationEmailError")
-          : result.error.code === "invalid_credentials"
-            ? t("invalidCredentials")
-            : t(mode === "signup" ? "signupError" : "genericError"),
-      );
+    try {
+      const result = await authenticate({ mode, email: email.trim(), password, name, locale });
+      if (!result.ok) {
+        setError(t(result.error));
+        return;
+      }
+      if (result.confirmationRequired) {
+        setNotice(t("checkEmail"));
+        return;
+      }
+    } catch {
+      setError(t("genericError"));
       return;
-    }
-    if (mode === "signup" && !result.data.session) {
+    } finally {
       setPending(false);
-      setNotice(t("checkEmail"));
-      return;
     }
     router.replace(next);
     router.refresh();

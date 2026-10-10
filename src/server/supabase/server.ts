@@ -1,7 +1,8 @@
 import "server-only";
 import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
+import { sessionCookieOptions } from "./cookie-options";
+import { cookies, headers } from "next/headers";
 import { getServerEnv } from "../env";
 import type { Database } from "./database.types";
 
@@ -15,14 +16,16 @@ export type MonioClient = ReturnType<typeof createSupabaseClient<Database>>;
 export async function createClient() {
   const env = getServerEnv();
   const cookieStore = await cookies();
+  const cookieOptions = sessionCookieOptions(await headers());
   return createServerClient<Database>(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
+    cookieOptions,
     cookies: {
       getAll() {
         return cookieStore.getAll();
       },
       setAll(cookiesToSet) {
         try {
-          for (const { name, value, options } of cookiesToSet) cookieStore.set(name, value, options);
+          for (const { name, value, options } of cookiesToSet) cookieStore.set(name, value, { ...options, ...cookieOptions });
         } catch {
           // Called from a Server Component: the proxy refreshes the session instead.
         }
