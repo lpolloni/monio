@@ -84,3 +84,7 @@ Use Cloudflare rate limiting on login POST requests alongside Supabase Auth limi
 application rate limiting is not added by this change. SMTP and confirmation links must be configured
 separately; existing email confirmation links must return to the public Monio origin rather than a private API.
 Rebuild/restart Monio after updating code. Existing sessions may need a fresh login.
+
+The configured tunnel hostname is `moniodev.lucaspolloni.com`, explicitly allowed in both
+`allowedDevOrigins` and `experimental.serverActions.allowedOrigins`. Update both exact-host
+entries if the public app hostname changes. Rebuild/restart the server serving the tunnel.

@@ -11,8 +11,10 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
-  allowedDevOrigins: ['0.0.0.0'],
+  allowedDevOrigins: ["moniodev.lucaspolloni.com"],
   experimental: {
+    // Trust only this public app origin when the tunnel forwards an internal Host.
+    serverActions: { allowedOrigins: ["moniodev.lucaspolloni.com"] },
     // Uploads pass through src/proxy.ts; allow the import limit (bucket max 15 MB) plus multipart overhead.
     proxyClientMaxBodySize: "16mb",
   },
