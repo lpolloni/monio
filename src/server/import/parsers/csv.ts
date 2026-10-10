@@ -6,9 +6,10 @@
 import Papa from "papaparse";
 import type { ParseContext } from "@/domain/import/types";
 import { parseTables } from "../profiles";
+import { parseTablesLearning } from "../profiles/learned";
 import type { TableData } from "../profiles/types";
 import { decodeText, detectDelimiter, sanitizeCell, type Delimiter, type TextEncodingName } from "./text";
-import type { ParserOutput } from "./types";
+import type { DocumentParseContext, ParserOutput } from "./types";
 
 /** Hard cap on rows read from a CSV (guards memory before the transaction limit applies). */
 export const MAX_CSV_ROWS = 50_000;
@@ -50,4 +51,9 @@ export function parseCsv(bytes: Uint8Array, ctx: ParseContext = {}): ParserOutpu
   const { rows } = readCsvRows(bytes);
   const table: TableData = { rows };
   return parseTables([table], "csv", ctx);
+}
+
+/** Like parseCsv, plus the layout memory / model column mapping for headers no profile recognizes. */
+export function parseCsvLearning(bytes: Uint8Array, ctx: DocumentParseContext = {}): Promise<ParserOutput> {
+  return parseTablesLearning([{ rows: readCsvRows(bytes).rows }], "csv", ctx);
 }

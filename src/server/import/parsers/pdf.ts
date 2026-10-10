@@ -26,8 +26,8 @@ import { isKnownCurrency, normalizeCurrencyCode } from "@/domain/money/currencie
 import { dec, toPlain } from "@/domain/money/decimal";
 import { findIban, findInstitutionByText, getInstitution } from "../institution-catalog";
 import { mergeDocumentInterpretation, needsDocumentAi, validateDocumentInterpretation } from "./document-ai";
+import { learnPdfTable, parsePdfTable, PDF_TABLE_LEARNED_PROFILE } from "./pdf-table";
 import { parseSignedLedger } from "./signed-ledger";
-import { canLearnPdf, pdfLayoutKey, reusablePdf } from "./pdf-learning";
 import { WarningSink } from "./warnings";
 import { fold, normalizeDescription, sanitizeCell } from "./text";
 import type { AiProposedRow, DocumentParseContext, ParserOutput } from "./types";
@@ -212,7 +212,7 @@ const FULL_DATE_PATTERNS = [
 ];
 
 /** Full dates (with year) found anywhere in a line, in order of appearance. */
-function fullDates(text: string, order: DateOrder): { index: number; end: number; date: string }[] {
+export function fullDates(text: string, order: DateOrder): { index: number; end: number; date: string }[] {
   const folded = fold(text.slice(0, 2000));
   const found: { index: number; end: number; date: string }[] = [];
   FULL_DATE_PATTERNS.forEach((pattern, kind) => {
@@ -264,7 +264,8 @@ function completeYear(
 // ---------------------------------------------------------------------------
 // Amounts
 
-const AMOUNT_TOKEN = /^\(?[-−+]?(?:R\$|US\$|€|£|\$)?[-−+]?(\d{1,3}(?:[.,'’  ]\d{3})+|\d+)([.,])(\d{2})\)?(-|D|C|DR|CR|DB)?$/;
+// The currency symbol may lead ("R$ 39,90", "-€5,60") or trail ("-5,60€").
+const AMOUNT_TOKEN = /^\(?[-−+]?(?:R\$|US\$|€|£|\$)?[-−+]?(\d{1,3}(?:[.,'’  ]\d{3})+|\d+)([.,])(\d{2})(?:R\$|US\$|€|£|\$)?\)?(-|D|C|DR|CR|DB)?$/;
 const CURRENCY_TOKEN = /^(R\$|US\$|€|£|\$|EUR|BRL|USD|GBP|CHF)$/;
 const MARKER_TOKEN = /^(?:-|\+|−|D|C|DR|CR|DB|\([+-]\))$/;
 
@@ -333,6 +334,14 @@ function trailingAmount(tokens: string[]): TrailingAmount | undefined {
 const CARD_MARKERS =
   /\b(fatura|cartao de credito|credit card|carta di credito|estratto conto carta|tarjeta de credito|kreditkarte|carte de credit|card statement|limite disponivel|pagamento minimo)\b/;
 const CHECKING_MARKERS = /\b(conta corrente|conta digital|conto corrente|current account|checking account|girokonto|compte courant|cuenta corriente|extrato de conta)\b/;
+/** Card bills list purchases unsigned: readers with account conventions must not read them. */
+export function isCardStatementText(text: string): boolean {
+  const folded = fold(text);
+  return CARD_MARKERS.test(folded) && !CHECKING_MARKERS.test(folded);
+}
+export function isCheckingStatementText(text: string): boolean {
+  return CHECKING_MARKERS.test(fold(text));
+}
 const PERIOD_MARKERS = /\b(periodo|period|statement period|dal|from|von|zeitraum|referente|competencia|movimentacao|movimenti)\b/;
 /** Words joining the two dates of a period: "01/03/2026 a 31/03/2026", "1 Mar 2026 - 31 Mar 2026". */
 const PERIOD_CONNECTOR = /^\s*(a|al|ate|to|au|bis|hasta|until|till|-|–|—)\s*:?\s*$/;
@@ -440,19 +449,16 @@ export function amountAppearsIn(magnitude: string, text: string): boolean {
 export async function parsePdf(bytes: Uint8Array, ctx: DocumentParseContext = {}, deps: { extractLines?: typeof extractPdfLines } = {}): Promise<ParserOutput> {
   const extractLines = deps.extractLines ?? extractPdfLines;
   let lines = await extractLines(bytes);
+  let learned: DocumentParseContext["learnedPdfTables"];
+  try { learned = await ctx.layoutMemory?.load("pdf-table"); }
+  catch { console.warn("[import] Layout memory unavailable; reading without it"); }
+  if (learned?.size) ctx = { ...ctx, learnedPdfTables: learned };
   // A full-document fallback supersedes the old isolated-line assist.
   const original = await parsePdfLines(lines, ctx.documentAssist ? { ...ctx, aiAssist: undefined } : ctx);
   if (!ctx.documentAssist || !lines.length) return original;
-  const layout = ctx.pdfLearning ? pdfLayoutKey(original, lines.flatMap(l => { const c = detectColumns(l); return c ? [c] : []; })) : undefined;
-  // A learned reader is a fast path, not permission to skip current-file validation.
-  if (ctx.pdfLearning && layout) {
-    try {
-      const confirmations = await ctx.pdfLearning.confirmations(layout);
-      if (confirmations >= 2 && reusablePdf(original, lines)) return original;
-      if (confirmations && !reusablePdf(original, lines)) await ctx.pdfLearning.invalidate(layout);
-    } catch { console.warn("[import] PDF learning unavailable; using document AI"); }
-  }
-  if (!ctx.pdfLearning && !needsDocumentAi(original)) return original;
+  // Reconciled against its own printed balances, a statement needs no second
+  // opinion: the model would only add minutes and unverifiable doubts.
+  if (sourceVerified(original)) return original;
   let recoveredOriginal = original;
   try {
     // Unknown layouts may mix native text and outlined/image-only headers.
@@ -466,23 +472,38 @@ export async function parsePdf(bytes: Uint8Array, ctx: DocumentParseContext = {}
       catch { original.statement.warnings.push({ code: "row_unreadable", message: "Visual PDF text recovery failed; only native text was available." }); }
     }
     recoveredOriginal = await parsePdfLines(lines, { ...ctx, aiAssist: undefined });
+    if (sourceVerified(recoveredOriginal)) return recoveredOriginal;
     const result = await ctx.documentAssist(lines);
     const interpreted = validateDocumentInterpretation(result);
     if (!interpreted.statement.accounts.some(a => a.transactions.length || a.openingBalance || a.closingBalance)) {
       recoveredOriginal.statement.warnings.push(...interpreted.statement.warnings, { code: "ai_rejected_row", message: "AI could not produce a source-verified document interpretation." });
       return recoveredOriginal;
     }
-    if (ctx.pdfLearning && layout) {
-      try {
-        if (canLearnPdf(recoveredOriginal, interpreted, result, lines)) await ctx.pdfLearning.confirm(layout);
-        else await ctx.pdfLearning.invalidate(layout);
-      } catch { console.warn("[import] PDF learning could not be updated"); }
+    // Remember where this layout keeps its table, so its next statement needs no model.
+    const learnt = ctx.layoutMemory && !sourceVerified(recoveredOriginal) ? learnPdfTable(lines, interpreted, ctx) : undefined;
+    if (learnt) {
+      try { await ctx.layoutMemory!.save(learnt.signature, learnt.recipe); }
+      catch { console.warn("[import] Layout memory could not be updated"); }
+      return mergeDocumentInterpretation(learnt.output, interpreted);
     }
     return mergeDocumentInterpretation(recoveredOriginal, interpreted);
   } catch {
     recoveredOriginal.statement.warnings.push({ code: "ai_rejected_row", message: "Document AI interpretation failed; visually recovered deterministic extraction was retained." });
     return recoveredOriginal;
   }
+}
+
+/**
+ * True when the deterministic read is proven by the document itself: nothing
+ * left unread and every account with movements closing on its printed balance
+ * (or a running-balance table / learned layout read without leftovers).
+ */
+export function sourceVerified(output: ParserOutput): boolean {
+  const st = output.statement;
+  if (needsDocumentAi(output) || st.warnings.some((w) => w.code !== "row_skipped")) return false;
+  if (st.profile === "pdf-column-statement" || st.profile === PDF_TABLE_LEARNED_PROFILE) return true;
+  const moved = st.accounts.filter((a) => a.transactions.length);
+  return moved.length > 0 && moved.every((a) => a.openingBalance && a.closingBalance);
 }
 
 /** Nubank account PDFs group undated, wrapped movements under dated daily totals. */
@@ -671,6 +692,19 @@ export async function parsePdfLines(lines: PdfLine[], ctx: DocumentParseContext 
   if (ledger) return ledger;
   const reconciled = parseReconciledTable(lines);
   if (reconciled) return reconciled;
+  // A header-named table read without leftovers wins over the line parser
+  // whenever that one left lines unread or found fewer movements.
+  const table = parsePdfTable(lines, ctx);
+  if (table && !table.statement.warnings.length) {
+    const byLine = await parseGenericLines(lines, { ...ctx, aiAssist: undefined });
+    const count = (o: ParserOutput) => o.statement.accounts.reduce((n, a) => n + a.transactions.length, 0);
+    return byLine.statement.warnings.some((w) => w.code === "row_unreadable") || count(byLine) < count(table) ? table : byLine;
+  }
+  return parseGenericLines(lines, ctx);
+}
+
+/** Line-by-line reader: a date at the start of the line and an amount at its end. */
+async function parseGenericLines(lines: PdfLine[], ctx: DocumentParseContext): Promise<ParserOutput> {
   const warnings = new WarningSink();
 
   // Pass 1: numeric date order across the whole document (header dates such as
@@ -946,7 +980,7 @@ function columnAmounts(line: PdfLine, dateLength: number, columns: Column[]) {
 const DMY_CURRENCIES = new Set(["BRL", "EUR", "GBP", "CHF"]);
 
 /** Most frequent currency symbol/code written in the document, if any. */
-function currencyInText(lines: PdfLine[]): string | undefined {
+export function currencyInText(lines: PdfLine[]): string | undefined {
   const counts = new Map<string, number>();
   const pattern = /R\$|US\$|€|£|\b(?:EUR|BRL|USD|GBP|CHF)\b/g;
   for (const line of lines.slice(0, 2000)) {

@@ -43,6 +43,7 @@ export {
   StatementRowProposalSchema,
   TransactionInterpretationInputSchema,
   TransactionInterpretationSchema,
+  type TableColumns,
   type ReasoningCode,
   type StatementContext,
   type StatementLineInput,

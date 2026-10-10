@@ -1,5 +1,9 @@
 # Tasks
 
+Import review and layout learning (2026-10-10): DONE — audit of the 16 DEV imports against their originals (15 exact; N26 PDF had 4 of 22 movements); generic positioned-table PDF reader; no model call for source-verified PDFs; layout memory (`import_layouts`) with balance-proven and model-assisted column mapping for unknown CSV/XLSX and learned PDF tables; signed-ledger false warnings removed. Details and verification in PROGRESS. TODO: re-import the N26 statement in DEV (stored rows unchanged); run DB integration/E2E on a localhost stack; learn PDF layouts whose date and amount are on different lines; remember a user-confirmed institution for an unknown layout.
+
+Development origin correction (2026-10-10): DONE — replaced unsupported CIDR notation with the exact LAN development host in `allowedDevOrigins` and `serverActions.allowedOrigins`. Reload/restart `next dev` after this configuration change.
+
 Automatic categorization expanded (2026-10-10): added deterministic Portuguese/Italian/English payment-purpose, merchant and category-keyword recognition before AI fallback, without requiring a database migration. Existing explicit rules retain precedence. Whole-token matching prevents partial-name collisions; specific merchant aliases win (Uber Eats/Uber, Amazon Prime/Amazon), and incompatible money directions remain unclassified. PIX/TED/bonifico/payment processors alone never establish purpose or ownership. AI deduplication now retains currency/account-type/country context; learned rules and manual confirmations preserve the full normalized counterparty instead of a generic three-word prefix, with the database 120-character limit enforced. Updated model guidance to prefer specific categories without guessing generic buckets. Existing stored rules/imports were not rewritten. Verified 753 unit tests / 48 files, typecheck and ESLint; DB integration/E2E/live model verification not run.
 
 
@@ -97,6 +101,7 @@ Resolved connection follow-up: DEV Supavisor works on port `5432` with `postgres
 | Duplicate detection, transfer matching (one-to-one, cross-currency with wording), cross-entity questions | DONE | |
 | Recurring + subscriptions + price-change detection | DONE | |
 | Import UI: drag & drop, multi-file queue, progress, summary | DONE | |
+| Unknown layouts: structure readers + layout memory (learn once, reuse) | DONE | PDF header-named tables in any column order; CSV/XLSX columns by running-balance proof or model column mapping (content-checked); recipes per user in `import_layouts`. Not learnable yet: PDF layouts with date and amount on different lines. |
 | Scanned (image-only) PDF OCR | TODO | Only an "unsupported layout" warning today |
 
 ## Phase 4 — Intelligence & Smart Inbox

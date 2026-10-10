@@ -135,6 +135,29 @@ export const ModelInterpretationItemSchema = z.strictObject({
 });
 export type ModelInterpretationItem = z.infer<typeof ModelInterpretationItemSchema>;
 
+const columnIndex = z.number().int().min(0).max(199).nullish();
+/** Model answer of proposeTableColumns: column indexes only, never cell values. */
+export const TableColumnsAnswerSchema = z.object({
+  date: columnIndex,
+  description: columnIndex,
+  amount: columnIndex,
+  debit: columnIndex,
+  credit: columnIndex,
+  balance: columnIndex,
+  currency: columnIndex,
+  value_date: columnIndex,
+});
+export interface TableColumns {
+  date: number;
+  description: number;
+  amount?: number;
+  debit?: number;
+  credit?: number;
+  balance?: number;
+  currency?: number;
+  valueDate?: number;
+}
+
 export const StatementRowsEnvelopeSchema = z.strictObject({
   rows: z.array(z.unknown()).max(1000),
 });

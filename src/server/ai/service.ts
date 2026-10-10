@@ -16,8 +16,11 @@ import {
   buildInterpretUserMessage,
   buildStatementUserMessage,
   INTERPRET_SYSTEM_PROMPT,
+  buildTableColumnsUserMessage,
   STATEMENT_ROWS_SYSTEM_PROMPT,
+  TABLE_COLUMNS_SYSTEM_PROMPT,
   type StatementPayload,
+  type TableColumnsPayload,
 } from "./prompts";
 import { createAnthropicProvider } from "./providers/anthropic";
 import { createMockProvider } from "./providers/mock";
@@ -37,7 +40,9 @@ import {
   StatementContextSchema,
   StatementLineInputSchema,
   StatementRowsEnvelopeSchema,
+  TableColumnsAnswerSchema,
   TransactionInterpretationInputSchema,
+  type TableColumns,
   type StatementContext,
   type StatementLineInput,
   type StatementRowProposal,
@@ -90,6 +95,13 @@ export interface AiService {
     lines: readonly StatementLineInput[],
     ctx?: StatementContext,
   ): Promise<AiResult<StatementRowProposal[]>>;
+  /**
+   * Says which column of an unrecognized CSV/XLSX table is the date, the
+   * description, the amount... from its header row and a few sample rows.
+   * Returns column indexes only (`null`: the model could not tell); the caller
+   * reads every value from the file and checks the columns against their content.
+   */
+  proposeTableColumns(table: { headers: readonly string[]; rows: readonly (readonly string[])[] }): Promise<AiResult<TableColumns | null>>;
   /** Interpret all PDF content in bounded batches; proposals still require source validation. */
   interpretDocument(lines: readonly DocumentLine[], options?: { onProgress?: (completed: number, total: number) => Promise<void> | void }): Promise<AiResult<DocumentBatch[]>>;
   health(): Promise<AiHealth>;
@@ -335,6 +347,46 @@ export function createAiService(config: AiConfig, deps: AiServiceDeps = {}): AiS
       }
       data.sort((a, b) => a.line - b.line);
       return { ok: true, data, meta: meta(started, extra) };
+    },
+
+    async proposeTableColumns(table) {
+      const started = now();
+      const blocked = precheck();
+      if (blocked) return { ok: false, error: blocked, meta: meta(started) };
+      const input = z.object({
+        headers: z.array(z.string().max(2000)).min(2).max(60),
+        rows: z.array(z.array(z.string().max(2000)).max(60)).min(1).max(20),
+      }).safeParse(table);
+      if (!input.success) {
+        return { ok: false, error: aiError("invalid_input", `Invalid table: ${issuesSummary(input.error)}`), meta: meta(started) };
+      }
+      const width = input.data.headers.length;
+      const payload: TableColumnsPayload = {
+        columns: input.data.headers.map((header, index) => ({ index, header: sanitizeUntrustedText(header, 80) })),
+        rows: input.data.rows.map((row) => Array.from({ length: width }, (_, i) => sanitizeUntrustedText(row[i] ?? "", 80))),
+      };
+      const outcome = await call({ task: "map_table_columns", system: TABLE_COLUMNS_SYSTEM_PROMPT, user: buildTableColumnsUserMessage(payload), payload });
+      if (!outcome.ok) return { ok: false, error: outcome.error, meta: meta(started, { batches: 1 }) };
+      const answer = TableColumnsAnswerSchema.safeParse(outcome.value);
+      if (!answer.success) {
+        return { ok: false, error: aiError("schema_invalid", "The model answer is not a column mapping."), meta: meta(started, { batches: 1 }) };
+      }
+      const a = answer.data;
+      const inRange = (v: number | null | undefined): v is number => typeof v === "number" && v < width;
+      const used = [a.date, a.description, a.amount, a.debit, a.credit, a.balance, a.currency, a.value_date].filter((v) => v !== null && v !== undefined);
+      const money = inRange(a.amount) || (inRange(a.debit) && inRange(a.credit));
+      if (!inRange(a.date) || !inRange(a.description) || !money || used.some((v) => !inRange(v)) || new Set(used).size !== used.length) {
+        return { ok: true, data: null, meta: meta(started, { batches: 1 }) };
+      }
+      const data: TableColumns = {
+        date: a.date,
+        description: a.description,
+        ...(inRange(a.amount) ? { amount: a.amount } : { debit: a.debit!, credit: a.credit! }),
+        ...(inRange(a.balance) && { balance: a.balance }),
+        ...(inRange(a.currency) && { currency: a.currency }),
+        ...(inRange(a.value_date) && { valueDate: a.value_date }),
+      };
+      return { ok: true, data, meta: meta(started, { batches: 1 }) };
     },
 
     async interpretDocument(lines, options) {

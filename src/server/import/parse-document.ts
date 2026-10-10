@@ -17,12 +17,12 @@ import {
   getInstitution,
   type InstitutionMatch,
 } from "./institution-catalog";
-import { CsvTooLargeError, parseCsv } from "./parsers/csv";
+import { CsvTooLargeError, parseCsvLearning } from "./parsers/csv";
 import { OfxTooLargeError, parseOfx } from "./parsers/ofx";
 import { parsePdf, PdfRejectedError } from "./parsers/pdf";
 import { normalizeDescription } from "./parsers/text";
 import type { DocumentParseContext, ParserOutput } from "./parsers/types";
-import { parseXlsx, XlsxRejectedError } from "./parsers/xlsx";
+import { parseXlsxLearning, XlsxRejectedError } from "./parsers/xlsx";
 
 export type { AiProposedRow, DocumentParseContext, PdfAiAssist } from "./parsers/types";
 
@@ -86,13 +86,13 @@ export async function parseDocument(input: DocumentInput, ctx: DocumentParseCont
   try {
     switch (format) {
       case "csv":
-        output = parseCsv(bytes, parseCtx);
+        output = await parseCsvLearning(bytes, parseCtx);
         break;
       case "ofx":
         output = parseOfx(bytes, parseCtx);
         break;
       case "xlsx":
-        output = await parseXlsx(bytes, parseCtx);
+        output = await parseXlsxLearning(bytes, parseCtx);
         break;
       case "pdf":
         output = await parsePdf(bytes, parseCtx);

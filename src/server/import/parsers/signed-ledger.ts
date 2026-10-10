@@ -8,6 +8,8 @@ import { fold, normalizeDescription } from "./text";
 import type { PdfLine } from "./pdf";
 import type { DocumentParseContext, ParserOutput } from "./types";
 
+const PAGE_HEADER = /^(extrato de conta|cliente:|periodo:|lancamentos$|dia lote|data lote)/;
+
 export function parseSignedLedger(lines: PdfLine[], ctx: DocumentParseContext): ParserOutput | undefined {
   const header = lines.find(l => /\b(dia|data|date)\b/.test(fold(l.text)) && /\b(historico|description|descricao)\b/.test(fold(l.text)) && /\b(valor|amount|importo)\b/.test(fold(l.text)));
   const history = header?.items.find(i => /^(historico|description|descricao)$/.test(fold(i.text)));
@@ -44,8 +46,11 @@ export function parseSignedLedger(lines: PdfLine[], ctx: DocumentParseContext): 
     previous.raw.continuation = part.map(l => l.text).join("\n");
   };
   for (const line of lines.filter(l => l.line > header.line && (positionsStart < 0 || l.line < lines[positionsStart]!.line))) {
+    // The printed closing balance ends the ledger: what follows on the page is
+    // informational (limits, interest dates) or not booked yet (future entries).
+    if (closed) break;
     const text = fold(line.text);
-    if (/^(extrato de conta|cliente:|periodo:|lancamentos$|dia lote|data lote)/.test(text)) continue;
+    if (PAGE_HEADER.test(text)) continue;
     const dateText = /^\d{2}\/\d{2}\/\d{4}\b/.exec(line.text)?.[0];
     const date = dateText && parseDate(dateText);
     if (!date) {
@@ -88,6 +93,8 @@ export function parseSignedLedger(lines: PdfLine[], ctx: DocumentParseContext): 
   if (!account.transactions.length || !account.openingBalance || !closed) return undefined;
   const accounts: ParsedAccount[] = [account];
   for (const line of positions) {
+    // A page break inside the summary repeats the statement header.
+    if (PAGE_HEADER.test(fold(line.text)) || /^(aplicacoes financeiras|investment positions|posizioni investimenti)$/.test(fold(line.text))) continue;
     const m = /^(.+?)\s+(\d[\d.,]*[.,]\d{2})$/.exec(line.text);
     const amount = m ? parseAmount(m[2])?.amount : undefined;
     if (!m || amount === undefined) { warnings.push({ code: "row_unreadable", row: line.line, message: "Investment summary position could not be read." }); continue; }

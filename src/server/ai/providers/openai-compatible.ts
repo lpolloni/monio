@@ -63,6 +63,8 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleOptions)
       ],
       temperature: 0,
       ...(id === "omlx" && request.task === "interpret_document" && { enable_thinking: false, max_tokens: 6000 }),
+      // A column mapping is a dozen tokens: reasoning only makes a local model miss the timeout.
+      ...(id === "omlx" && request.task === "map_table_columns" && { enable_thinking: false, max_tokens: 200 }),
       ...(withResponseFormat && { response_format: id === "omlx" && request.task === "interpret_document"
         ? { type: "json_schema", json_schema: { name: "statement_document", strict: true, schema: z.toJSONSchema(DocumentProposalSchema) } }
         : { type: "json_object" } }),

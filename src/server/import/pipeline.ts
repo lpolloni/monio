@@ -27,10 +27,11 @@ import { postProcessUser } from "../processing/post-process";
 import type { Json } from "../supabase/database.types";
 import { dbNumeric } from "../supabase/numeric";
 import type { MonioClient } from "../supabase/server";
-import { workerPdfLearningStore } from "./pdf-learning-store";
+import { layoutMemoryStore } from "./layout-memory-store";
 import { detectFormat } from "./detect-format";
 import { DOCUMENTS_BUCKET, sha256Hex, UploadRejectedError } from "./intake";
 import { DocumentLimitError, EmptyDocumentError, parseDocument, UnsupportedDocumentError, type PdfAiAssist } from "./parse-document";
+import type { TableColumnAssist } from "./parsers/types";
 
 // ---------------------------------------------------------------------------
 // Stages, errors and stats (pure, unit-tested)
@@ -285,6 +286,15 @@ export function pdfAiAssist(ai: AiService, onUse?: () => void): PdfAiAssist {
       amount: r.amount,
       ...(r.currency ? { currency: r.currency } : {}),
     }));
+  };
+}
+
+/** Adapts the AI service to the CSV/XLSX column-mapping hook. A failed call means "no proposal". */
+export function tableAiAssist(ai: AiService, onUse?: () => void): TableColumnAssist {
+  return async (table) => {
+    onUse?.();
+    const result = await ai.proposeTableColumns(table);
+    return result.ok && result.data ? result.data : undefined;
   };
 }
 
@@ -683,8 +693,10 @@ async function processJob(
       filename: doc.original_filename,
       fallbackCurrency: primaryCurrency,
       ...(ai && format === "pdf" ? { aiAssist: pdfAiAssist(ai, () => (aiUsed = true)) } : {}),
+      // What earlier imports learned about this user's file layouts; new layouts are added to it.
+      layoutMemory: layoutMemoryStore(db, userId),
+      ...(ai && (format === "csv" || format === "xlsx") && ai.mode !== "mock" && ai.mode !== "disabled" ? { tableAssist: tableAiAssist(ai, () => (aiUsed = true)) } : {}),
       ...(ai && format === "pdf" && ai.mode !== "mock" && ai.mode !== "disabled" ? {
-        pdfLearning: workerPdfLearningStore(db, userId, doc.sha256),
         documentAssist: async (lines: import("../ai/document-contract").DocumentLine[]) => {
           aiUsed = true;
           console.info(`[import] job ${job.id}: document AI started`);
@@ -711,7 +723,7 @@ async function processJob(
   }
   // A source-verified issuer outside our catalog becomes a private institution,
   // with a stable key across monthly imports. RLS still scopes every operation.
-  if (!institution && !hintSlug && statement.profile === "pdf-with-document-ai" && statement.institution?.name) {
+  if (!institution && !hintSlug && (statement.profile === "pdf-with-document-ai" || statement.profile === "pdf-table-learned") && statement.institution?.name) {
     const name = statement.institution.name.slice(0, 120);
     const slug = `import-${hashIdentifier(fold(name).replace(/\s+/g, " ")).slice(0, 40)}`;
     const lookup = () => db.from("institutions").select("id, slug, name, country").eq("owner_id", userId).eq("slug", slug).maybeSingle();

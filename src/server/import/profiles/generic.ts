@@ -12,6 +12,7 @@
 import { inferDecimalSeparator, parseAmount } from "@/domain/import/parse-amount";
 import { inferDateOrder, parseDate, type DateOrder } from "@/domain/import/parse-date";
 import type { ParseWarning } from "@/domain/import/types";
+import { dec } from "@/domain/money/decimal";
 import { normalizeCurrencyCode } from "@/domain/money/currencies";
 import { headerCore } from "../parsers/text";
 import { cellAt, columnRate, readTable } from "./table";
@@ -229,68 +230,143 @@ export const genericProfile: StatementProfile = {
         "Could not identify date, description and amount columns with confidence; no transactions were imported.",
       );
     }
-    const warnings: ParseWarning[] = [];
-    const stringValues = (col: number | undefined) =>
-      col === undefined
-        ? []
-        : data
-            .map((row, i) => ({ value: cellAt(row, col), numeric: ctx.numericCell?.(ctx.headerRowIndex + 1 + i, col) }))
-            .filter((v) => v.value && !v.numeric)
-            .map((v) => v.value);
-
-    const amountSamples = [mapping.amount, mapping.debit, mapping.credit, mapping.balance].flatMap(stringValues);
-    const decimal = inferDecimalSeparator(amountSamples);
-    if (!decimal && amountSamples.some((v) => /^[^.,]*\d[.,]\d{3}(?!\d)[^.,]*$/.test(v.replace(/\s/g, "")))) {
-      warnings.push({
-        code: "ambiguous_decimal_separator",
-        message: 'Amounts like "1.234" could use either decimal separator; they were read as thousands.',
-      });
-    }
-
-    // Dates in the preamble ("Período: 01/03/2026 a 31/03/2026") also prove the order.
-    const preambleDates = (ctx.preamble ?? "").slice(0, 5000).match(/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b/g) ?? [];
-    const dateSamples = [...stringValues(mapping.date), ...preambleDates];
-    const fallbackOrder: DateOrder = "DMY";
-    const order = inferDateOrder(dateSamples, fallbackOrder);
-    const proven = inferDateOrder(dateSamples, "YMD") !== "YMD";
-    if (!proven && dateSamples.some((v) => /^(\d{1,2})[/.\-](\d{1,2})[/.\-]\d{2,4}/.test(v) && isAmbiguousDayMonth(v))) {
-      warnings.push({
-        code: "ambiguous_date_order",
-        message: "Dates could be day/month or month/day; read as day/month.",
-      });
-    }
-
-    const amountHeader = headers[mapping.amount ?? mapping.debit ?? mapping.credit ?? -1];
-    const headerCurrency = currencyFromHeader(amountHeader) ?? currencyFromText(ctx.preamble);
-    const result = readTable(rows, ctx, {
-      date: mapping.date,
-      valueDate: mapping.valueDate,
-      dateOrder: order,
-      decimal,
-      amount:
-        mapping.amount !== undefined
-          ? { kind: "signed", col: mapping.amount }
-          : { kind: "split", debitCol: mapping.debit, creditCol: mapping.credit },
-      description: (row) => cellAt(row.cells, mapping.description) || cellAt(row.cells, mapping.counterparty),
-      counterparty: (row) => cellAt(row.cells, mapping.counterparty) || undefined,
-      externalId: mapping.id,
-      balance: mapping.balance,
-      currencyCol: mapping.currency,
-      currency: headerCurrency,
-      // One account per currency when the export mixes currencies.
-      account: mapping.currency !== undefined ? (_row, currency) => ({ key: currency }) : undefined,
-      skip: (row) => {
-        const state = cellAt(row.cells, mapping.status);
-        return state && SKIPPED_STATES.test(state)
-          ? { reason: `Row skipped: state "${state.slice(0, 30)}" (not booked).`, warn: true }
-          : undefined;
-      },
-      pending: (row) => PENDING_STATES.test(cellAt(row.cells, mapping.status)),
-      extraction: "heuristic",
-    });
-    return { accounts: result.accounts, warnings: [...warnings, ...result.warnings] };
+    return parseMapped(rows, ctx, mapping);
   },
 };
+
+/**
+ * True when the data under a header row fits a column mapping that did not
+ * come from the header wording (a model proposal or a remembered layout):
+ * the date column holds dates, the money columns amounts, the description text.
+ */
+export function mappingFitsData(mapping: GenericMapping, dataRows: readonly string[][]): boolean {
+  const rows = dataRows.filter((r) => r.some((c) => c.trim())).slice(0, 200);
+  const roles = [mapping.date, mapping.valueDate, mapping.description, mapping.counterparty, mapping.amount, mapping.debit, mapping.credit, mapping.currency, mapping.balance, mapping.id, mapping.status].filter((c) => c !== undefined);
+  if (!rows.length || new Set(roles).size !== roles.length) return false;
+  if ((mapping.amount === undefined) === (mapping.debit === undefined || mapping.credit === undefined)) return false;
+  const fits = (col: number | undefined, test: (v: string) => boolean, rate: number, minCoverage: number) =>
+    col === undefined || (columnRate(rows, col, test) >= rate && coverage(rows, col) >= minCoverage);
+  const money = mapping.amount !== undefined
+    ? fits(mapping.amount, isAmount, 0.8, 0.5)
+    : fits(mapping.debit, isAmount, 0.8, 0) && fits(mapping.credit, isAmount, 0.8, 0) &&
+      rows.filter((r) => cellAt(r, mapping.debit) || cellAt(r, mapping.credit)).length / rows.length >= 0.5;
+  return money && fits(mapping.date, isDate, 0.8, 0.5) && fits(mapping.description, hasLetters, 0.5, 0.5) &&
+    fits(mapping.valueDate, isDate, 0.8, 0) && fits(mapping.balance, isAmount, 0.8, 0) && fits(mapping.currency, isCurrencyCode, 0.8, 0);
+}
+
+/**
+ * Column mapping proven by the data alone, for headers in words nobody knows:
+ * a column is the running balance of another when every row's balance equals
+ * the previous balance plus that row's movement (a signed column, or a
+ * money-out / money-in pair), in either row order. Without such a proof
+ * nothing is inferred.
+ */
+export function inferMappingFromBalances(dataRows: readonly string[][]): GenericMapping | undefined {
+  const rows = dataRows.filter((r) => r.some((c) => c.trim())).slice(0, 200);
+  if (rows.length < 3) return undefined;
+  const width = Math.min(60, Math.max(...rows.map((r) => r.length)));
+  const cols = Array.from({ length: width }, (_, c) => c);
+  const date = cols.find((c) => columnRate(rows, c, isDate) >= 0.9 && coverage(rows, c) >= 0.9);
+  if (date === undefined) return undefined;
+  const money = cols.filter((c) => c !== date && columnRate(rows, c, isAmount) >= 0.9 && rows.some((r) => /\d[.,]\d{2}\D*$/.test(cellAt(r, c)))).slice(0, 8);
+  const decimal = inferDecimalSeparator(money.flatMap((c) => rows.map((r) => cellAt(r, c)).filter(Boolean)));
+  const value = (r: readonly string[], c: number) => {
+    const parsed = cellAt(r, c) ? parseAmount(cellAt(r, c), decimal) : null;
+    return parsed ? dec(parsed.amount) : undefined;
+  };
+  const proves = (balance: number, effect: (r: readonly string[]) => ReturnType<typeof dec> | undefined) => {
+    const points = rows.map((r) => ({ balance: value(r, balance), effect: effect(r) }));
+    if (points.some((p) => !p.balance || !p.effect) || points.every((p) => p.effect!.isZero())) return false;
+    const ascending = points.every((p, i) => i === 0 || points[i - 1]!.balance!.plus(p.effect!).equals(p.balance!));
+    const descending = points.every((p, i) => i === 0 || p.balance!.plus(points[i - 1]!.effect!).equals(points[i - 1]!.balance!));
+    return ascending || descending;
+  };
+  let found: Pick<GenericMapping, "amount" | "debit" | "credit" | "balance"> | undefined;
+  for (const balance of money) {
+    for (const amount of money) {
+      if (amount !== balance && !found && coverage(rows, amount) === 1 && proves(balance, (r) => value(r, amount))) found = { amount, balance };
+    }
+    for (const debit of money) for (const credit of money) {
+      if (found || new Set([balance, debit, credit]).size !== 3) continue;
+      const split = (r: readonly string[]) => (value(r, credit) ?? dec("0")).abs().minus((value(r, debit) ?? dec("0")).abs());
+      // Each row moves money one way only; otherwise the pair is not a debit/credit pair.
+      if (rows.every((r) => !value(r, debit) || value(r, debit)!.isZero() || !value(r, credit) || value(r, credit)!.isZero()) && proves(balance, split)) found = { debit, credit, balance };
+    }
+  }
+  if (!found) return undefined;
+  const used = new Set([date, found.amount, found.debit, found.credit, found.balance]);
+  const length = (c: number) => rows.reduce((n, r) => n + cellAt(r, c).length, 0);
+  const description = cols
+    .filter((c) => !used.has(c) && columnRate(rows, c, hasLetters) >= 0.5 && coverage(rows, c) >= 0.5 && columnRate(rows, c, isDate) < 0.5)
+    .sort((a, b) => length(b) - length(a))[0];
+  return description === undefined ? undefined : { date, description, ...found };
+}
+
+/** Reads a table with a known column mapping (heuristic, remembered or model-proposed and content-checked). */
+export function parseMapped(rows: string[][], ctx: ProfileContext, mapping: GenericMapping): ProfileResult {
+  const headers = rows[ctx.headerRowIndex] ?? [];
+  const data = rows.slice(ctx.headerRowIndex + 1);
+  const warnings: ParseWarning[] = [];
+  const stringValues = (col: number | undefined) =>
+    col === undefined
+      ? []
+      : data
+          .map((row, i) => ({ value: cellAt(row, col), numeric: ctx.numericCell?.(ctx.headerRowIndex + 1 + i, col) }))
+          .filter((v) => v.value && !v.numeric)
+          .map((v) => v.value);
+
+  const amountSamples = [mapping.amount, mapping.debit, mapping.credit, mapping.balance].flatMap(stringValues);
+  const decimal = inferDecimalSeparator(amountSamples);
+  if (!decimal && amountSamples.some((v) => /^[^.,]*\d[.,]\d{3}(?!\d)[^.,]*$/.test(v.replace(/\s/g, "")))) {
+    warnings.push({
+      code: "ambiguous_decimal_separator",
+      message: 'Amounts like "1.234" could use either decimal separator; they were read as thousands.',
+    });
+  }
+
+  // Dates in the preamble ("Período: 01/03/2026 a 31/03/2026") also prove the order.
+  const preambleDates = (ctx.preamble ?? "").slice(0, 5000).match(/\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b/g) ?? [];
+  const dateSamples = [...stringValues(mapping.date), ...preambleDates];
+  const fallbackOrder: DateOrder = "DMY";
+  const order = inferDateOrder(dateSamples, fallbackOrder);
+  const proven = inferDateOrder(dateSamples, "YMD") !== "YMD";
+  if (!proven && dateSamples.some((v) => /^(\d{1,2})[/.\-](\d{1,2})[/.\-]\d{2,4}/.test(v) && isAmbiguousDayMonth(v))) {
+    warnings.push({
+      code: "ambiguous_date_order",
+      message: "Dates could be day/month or month/day; read as day/month.",
+    });
+  }
+
+  const amountHeader = headers[mapping.amount ?? mapping.debit ?? mapping.credit ?? -1];
+  const headerCurrency = currencyFromHeader(amountHeader) ?? currencyFromText(ctx.preamble);
+  const result = readTable(rows, ctx, {
+    date: mapping.date,
+    valueDate: mapping.valueDate,
+    dateOrder: order,
+    decimal,
+    amount:
+      mapping.amount !== undefined
+        ? { kind: "signed", col: mapping.amount }
+        : { kind: "split", debitCol: mapping.debit, creditCol: mapping.credit },
+    description: (row) => cellAt(row.cells, mapping.description) || cellAt(row.cells, mapping.counterparty),
+    counterparty: (row) => cellAt(row.cells, mapping.counterparty) || undefined,
+    externalId: mapping.id,
+    balance: mapping.balance,
+    currencyCol: mapping.currency,
+    currency: headerCurrency,
+    // One account per currency when the export mixes currencies.
+    account: mapping.currency !== undefined ? (_row, currency) => ({ key: currency }) : undefined,
+    skip: (row) => {
+      const state = cellAt(row.cells, mapping.status);
+      return state && SKIPPED_STATES.test(state)
+        ? { reason: `Row skipped: state "${state.slice(0, 30)}" (not booked).`, warn: true }
+        : undefined;
+    },
+    pending: (row) => PENDING_STATES.test(cellAt(row.cells, mapping.status)),
+    extraction: "heuristic",
+  });
+  return { accounts: result.accounts, warnings: [...warnings, ...result.warnings] };
+}
 
 function isAmbiguousDayMonth(value: string): boolean {
   const m = /^(\d{1,2})[/.\-](\d{1,2})/.exec(value.trim());

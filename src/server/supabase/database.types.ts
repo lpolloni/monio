@@ -23,11 +23,11 @@ export type Database = {
           }
         },"public": {
           Tables: {
-            "pdf_reader_evidence": {
-              Row: { user_id: string; layout_hash: string; document_hash: string; created_at: string }
+            "import_layouts": {
+              Row: { user_id: string; signature: string; kind: string; recipe: Json; uses: number; created_at: string; updated_at: string }
               ComputedFields: never
-              Insert: { user_id: string; layout_hash: string; document_hash: string; created_at?: string }
-              Update: { user_id?: string; layout_hash?: string; document_hash?: string; created_at?: string }
+              Insert: { user_id: string; signature: string; kind: string; recipe: Json; uses?: number; created_at?: string; updated_at?: string }
+              Update: { user_id?: string; signature?: string; kind?: string; recipe?: Json; uses?: number; created_at?: string; updated_at?: string }
               Relationships: []
             }
             "account_balances": {

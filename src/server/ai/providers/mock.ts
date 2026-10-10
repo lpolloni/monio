@@ -244,6 +244,10 @@ export function createMockProvider(options: MockProviderOptions = {}): AiProvide
         // A mock must never pretend it can interpret arbitrary layouts.
         return { ok: true, text: JSON.stringify({ institution: null, period: null, accounts: [], unparsedLines: request.payload.primaryLines }) };
       }
+      if (request.task === "map_table_columns") {
+        // Like documents: the mock never pretends to understand an unknown layout.
+        return { ok: true, text: JSON.stringify({ date: null, description: null }) };
+      }
       return { ok: true, text: JSON.stringify({ rows: proposeRowsFromLines(request.payload) }) };
     },
 

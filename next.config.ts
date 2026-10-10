@@ -11,10 +11,11 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
-  allowedDevOrigins: ["moniodev.lucaspolloni.com"],
+  // Next accepts exact hostnames or DNS wildcards here; CIDR ranges are not supported.
+  allowedDevOrigins: ["moniodev.lucaspolloni.com", "192.168.68.104"],
   experimental: {
     // Trust only this public app origin when the tunnel forwards an internal Host.
-    serverActions: { allowedOrigins: ["moniodev.lucaspolloni.com"] },
+    serverActions: { allowedOrigins: ["moniodev.lucaspolloni.com", "192.168.68.104:3000"] },
     // Uploads pass through src/proxy.ts; allow the import limit (bucket max 15 MB) plus multipart overhead.
     proxyClientMaxBodySize: "16mb",
   },

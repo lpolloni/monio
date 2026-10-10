@@ -15,9 +15,10 @@ import { parseAmount } from "@/domain/import/parse-amount";
 import { parseDate } from "@/domain/import/parse-date";
 import type { ParseContext } from "@/domain/import/types";
 import { parseTables } from "../profiles";
+import { parseTablesLearning } from "../profiles/learned";
 import type { TableData } from "../profiles/types";
 import { sanitizeCell } from "./text";
-import type { ParserOutput } from "./types";
+import type { DocumentParseContext, ParserOutput } from "./types";
 
 export const MAX_XLSX_ROWS = 50_000;
 const MAX_COLUMNS = 200;
@@ -143,4 +144,9 @@ export async function readXlsxTables(bytes: Uint8Array): Promise<TableData[]> {
 export async function parseXlsx(bytes: Uint8Array, ctx: ParseContext = {}): Promise<ParserOutput> {
   const tables = await readXlsxTables(bytes);
   return parseTables(tables, "xlsx", ctx);
+}
+
+/** Like parseXlsx, plus the layout memory / model column mapping for headers no profile recognizes. */
+export async function parseXlsxLearning(bytes: Uint8Array, ctx: DocumentParseContext = {}): Promise<ParserOutput> {
+  return parseTablesLearning(await readXlsxTables(bytes), "xlsx", ctx);
 }

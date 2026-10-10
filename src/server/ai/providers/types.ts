@@ -1,5 +1,5 @@
 import type { DocumentPayload } from "../document-contract";
-import type { StatementPayload } from "../prompts";
+import type { StatementPayload, TableColumnsPayload } from "../prompts";
 import type { AiError, AiProviderId } from "../result";
 import type { WireTransaction } from "../schemas";
 
@@ -11,6 +11,7 @@ import type { WireTransaction } from "../schemas";
  */
 export type ProviderRequest =
   | { task: "interpret_document"; system: string; user: string; payload: DocumentPayload; timeoutMs?: number }
+  | { task: "map_table_columns"; system: string; user: string; payload: TableColumnsPayload }
   | {
       task: "interpret_transactions";
       system: string;

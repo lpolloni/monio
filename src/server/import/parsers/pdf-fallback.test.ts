@@ -31,8 +31,23 @@ it("reads grouped dates and positioned movement values with independent running/
   ]);
 });
 
-it.each(["timeout", "empty"])("preserves visually recovered rows and balances on AI %s", async failure => {
+it("skips the model when the visually recovered statement reconciles with its printed balances", async () => {
   const full = await recovered();
+  const partial = await extractPdfLines(buildPdf([["Nubank extrato", "21/09/2026 PAGAMENTO FICTICIO -102,50"]]));
+  const extractor = vi.fn(async (_bytes: Uint8Array, visual?: boolean) => visual ? full : partial);
+  const assist = vi.fn(async () => ({ batches: [], skippedLines: [] }));
+  const p = await parsePdf(new Uint8Array([1]), { documentAssist: assist }, { extractLines: extractor });
+  expect(extractor.mock.calls.map(c => c[1])).toEqual([undefined, true]);
+  expect(assist).not.toHaveBeenCalled();
+  expect(p.statement.accounts[0]!.transactions).toHaveLength(3);
+  expect(p.statement.accounts[0]!.closingBalance!.amount).toBe("2216.02");
+  expect(p.statement.warnings).toEqual([]);
+});
+
+it.each(["timeout", "empty"])("keeps the visually recovered deterministic read on AI %s when the statement does not reconcile", async failure => {
+  // An intermediate printed balance disagrees: the reconciled reader refuses, the model is asked.
+  const full = await recovered("2.216,02", "99,00");
+  const deterministic = await parsePdfLines(full);
   const partial = await extractPdfLines(buildPdf([["Nubank extrato", "21/09/2026 PAGAMENTO FICTICIO -102,50"]]));
   const extractor = vi.fn(async (_bytes: Uint8Array, visual?: boolean) => visual ? full : partial);
   const assist = vi.fn(async () => {
@@ -42,8 +57,7 @@ it.each(["timeout", "empty"])("preserves visually recovered rows and balances on
   const p = await parsePdf(new Uint8Array([1]), { documentAssist: assist }, { extractLines: extractor });
   expect(extractor.mock.calls.map(c => c[1])).toEqual([undefined, true]);
   expect(assist).toHaveBeenCalledOnce();
-  expect(p.statement.accounts[0]!.transactions).toHaveLength(3);
-  expect(p.statement.accounts[0]!.closingBalance!.amount).toBe("2216.02");
+  expect(p.statement.accounts[0]!.transactions).toEqual(deterministic.statement.accounts[0]!.transactions);
   expect(p.statement.warnings.some(w => w.code === "ai_rejected_row")).toBe(true);
 });
 
