@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowDownLeft, ArrowLeft, ArrowUpRight, Copy, Eye, FileText, LoaderCircle, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowDownLeft, ArrowLeft, ArrowUpRight, Copy, Eye, EyeOff, FileText, LoaderCircle, RefreshCw, Settings2, ShieldCheck } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { useLocale, useTranslations } from "use-intl";
 import { AreaTrend } from "@/components/charts/area-trend";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { formatDate, formatMoney, formatNumber, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { syncWallet } from "@/server/actions/wallets";
+import { AccountSettingsSheet } from "./account-settings-sheet";
 import type { AccountDetail } from "@/server/data/account-detail";
 
 export function AccountDetailView({ detail, short, now }: { detail: AccountDetail; short: string; now: string }) {
@@ -22,6 +23,7 @@ export function AccountDetailView({ detail, short, now }: { detail: AccountDetai
   const { account } = detail;
   const color = account.institutionColor ?? "var(--accent)";
   const [syncing, startSync] = useTransition();
+  const [editing, setEditing] = useState(false);
   const nowDate = new Date(now);
   const isLiability = ["credit_card", "loan", "mortgage"].includes(account.type);
   const lastUpdated = account.lastSyncedAt ?? account.balanceAsOf;
@@ -36,10 +38,23 @@ export function AccountDetailView({ detail, short, now }: { detail: AccountDetai
   return (
     <div className="flex flex-col gap-10">
       <div>
-        <Link href={`/${locale}/explore`} className="inline-flex items-center gap-1.5 text-[13px] text-fg-muted transition hover:text-fg">
-          <ArrowLeft className="size-4" />
-          {t("explore.title")}
-        </Link>
+        <div className="flex items-center justify-between gap-3">
+          <Link href={`/${locale}/explore`} className="inline-flex items-center gap-1.5 text-[13px] text-fg-muted transition hover:text-fg">
+            <ArrowLeft className="size-4" />
+            {t("explore.title")}
+          </Link>
+          <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
+            <Settings2 />
+            {t("explore.editAccount")}
+          </Button>
+        </div>
+        <AccountSettingsSheet
+          key={`${account.name}|${account.entityId}|${account.includeInNetWorth}`}
+          open={editing}
+          onOpenChange={setEditing}
+          account={account}
+          entities={detail.entities}
+        />
         <div className="mt-5 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
           <div className="flex items-center gap-4">
             <span
@@ -55,6 +70,12 @@ export function AccountDetailView({ detail, short, now }: { detail: AccountDetai
                 <Badge>{t(`accountTypes.${account.type}` as "accountTypes.checking")}</Badge>
                 <Badge tone={account.entityKind === "business" ? "accent" : "neutral"}>{account.entityName || t(`common.${account.entityKind}`)}</Badge>
                 {account.accountMask ? <Badge>{t("explore.mask", { mask: account.accountMask })}</Badge> : null}
+                {account.includeInNetWorth ? null : (
+                  <Badge tone="warning">
+                    <EyeOff className="size-3" />
+                    {t("explore.excludedFromNetWorth")}
+                  </Badge>
+                )}
                 {account.wallet ? (
                   <Badge tone="positive">
                     <Eye className="size-3" />

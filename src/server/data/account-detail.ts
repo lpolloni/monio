@@ -1,5 +1,6 @@
 import "server-only";
 import { addDaysIso } from "@/domain/analytics/periods";
+import type { EntityKind } from "@/domain/accounts/classification";
 import { computePortfolio } from "@/domain/portfolio/portfolio";
 import { todayIso } from "./dates";
 import type { AccountRecord } from "./finance";
@@ -30,6 +31,7 @@ export interface AccountDetail {
   liability: { principal: string | null; rate: string | null; monthly: string | null; maturity: string | null } | null;
   holdings: { symbol: string; name: string; network: string | undefined; quantity: string; value: string | null; isStablecoin: boolean }[];
   chainTransactions: { hash: string; network: string; direction: string; quantity: string; symbol: string; time: string; classification: string }[];
+  entities: { id: string; name: string; kind: EntityKind }[];
 }
 
 export async function getAccountDetail(accountId: string): Promise<AccountDetail | null> {
@@ -43,7 +45,7 @@ export async function getAccountDetail(accountId: string): Promise<AccountDetail
   const portfolio = computePortfolio([account], fx, currency, today, { includeBusiness: true });
   const valued = portfolio.accounts[0];
 
-  const [{ data: balances }, activity, categories, { data: liability }] = await Promise.all([
+  const [{ data: balances }, activity, categories, { data: liability }, { data: entities }] = await Promise.all([
     supabase
       .from("account_balances")
       .select("as_of, balance:balance::text, currency, source")
@@ -57,6 +59,7 @@ export async function getAccountDetail(accountId: string): Promise<AccountDetail
       .select("original_principal:original_principal::text, interest_rate_apr:interest_rate_apr::text, monthly_payment:monthly_payment::text, maturity_on")
       .eq("account_id", accountId)
       .maybeSingle(),
+    supabase.from("financial_entities").select("id, name, kind").eq("user_id", userId).order("created_at", { ascending: true }),
   ]);
   const categoryById = new Map(categories.map((c) => [c.id, c.slug]));
 
@@ -118,5 +121,6 @@ export async function getAccountDetail(accountId: string): Promise<AccountDetail
       : null,
     holdings,
     chainTransactions,
+    entities: (entities ?? []).map((e) => ({ id: e.id, name: e.name, kind: e.kind as EntityKind })),
   };
 }
