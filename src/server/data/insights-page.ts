@@ -18,6 +18,8 @@ export interface InsightsPageData {
   cashflow: { month: string; income: string; expenses: string; net: string; complete: boolean }[];
   categoriesByMonth: Record<string, Breakdown[]>;
   breakdowns: Record<string, { countries: Breakdown[]; institutions: (Breakdown & { name: string })[]; currencies: Breakdown[]; merchants: Breakdown[] }>;
+  /** The same breakdowns for money coming in. */
+  incomeByMonth: Record<string, { categories: Breakdown[]; countries: Breakdown[]; institutions: (Breakdown & { name: string })[]; currencies: Breakdown[] }>;
   netWorth: { date: string; netWorth: string; atConstantRates: string; crypto: string }[];
   groups: Record<string, string>;
   insights: InsightView[];
@@ -45,17 +47,22 @@ export async function getInsightsPageData(): Promise<InsightsPageData> {
   const total = computeCashflow(flows, fx, currency, { from, to: today, includeBusiness: profile.includeBusiness });
   const categoriesByMonth: InsightsPageData["categoriesByMonth"] = {};
   const breakdowns: InsightsPageData["breakdowns"] = {};
+  const incomeByMonth: InsightsPageData["incomeByMonth"] = {};
+  const named = (list: Breakdown[]) => list.map((b) => ({ ...b, name: accounts.find((a) => a.institutionId === b.key)?.institutionName ?? b.key }));
   for (const m of months) {
     const cf = computeCashflow(flows, fx, currency, { from: monthStart(m), to: m === currentMonth ? today : monthEnd(m), includeBusiness: profile.includeBusiness });
     categoriesByMonth[m] = cf.expensesByCategory.slice(0, 14);
     breakdowns[m] = {
       countries: cf.expensesByCountry,
-      institutions: cf.expensesByInstitution.map((b) => ({
-        ...b,
-        name: accounts.find((a) => a.institutionId === b.key)?.institutionName ?? b.key,
-      })),
+      institutions: named(cf.expensesByInstitution),
       currencies: cf.expensesByCurrency,
       merchants: cf.expensesByMerchant.slice(0, 8),
+    };
+    incomeByMonth[m] = {
+      categories: cf.incomeByCategory.slice(0, 14),
+      countries: cf.incomeByCountry,
+      institutions: named(cf.incomeByInstitution),
+      currencies: cf.incomeByCurrency,
     };
   }
 
@@ -116,6 +123,7 @@ export async function getInsightsPageData(): Promise<InsightsPageData> {
     cashflow: total.byMonth.map((m) => ({ ...m, complete: m.month !== currentMonth })),
     categoriesByMonth,
     breakdowns,
+    incomeByMonth,
     netWorth: history.map((p) => ({ date: p.date, netWorth: p.netWorth, atConstantRates: p.netWorthAtConstantRates, crypto: p.crypto })),
     groups: portfolio.groups,
     insights,

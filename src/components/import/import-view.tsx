@@ -3,6 +3,7 @@
 import { ArrowRight, CircleCheck, CircleX, FileSpreadsheet, FileText, LoaderCircle, ShieldCheck, Upload } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { useLocale, useTranslations } from "use-intl";
 import { cn } from "@/lib/utils";
@@ -50,6 +51,7 @@ const terminal = (s: QueueItem["state"]) => s === "completed" || s === "failed" 
 export function ImportView({ maxMb }: { maxMb: number }) {
   const t = useTranslations("import");
   const locale = useLocale();
+  const router = useRouter();
   const [items, setItems] = useState<QueueItem[]>([]);
   const [dragging, setDragging] = useState(false);
   const [openReview, setOpenReview] = useState<number | null>(null);
@@ -86,13 +88,14 @@ export function ImportView({ maxMb }: { maxMb: number }) {
           patch(key, { state: "completed", stage: "completed", progress: 100, stats: job.stats });
           // Per-job counts overlap when files import concurrently: show the real open total.
           setOpenReview(await countOpenInbox());
+          router.refresh(); // The list of imported files below.
           return;
         }
         patch(key, { state: "processing", stage: job.stage, progress: job.progress });
       }
       patch(key, { state: "failed", error: t("errorWaitExpired") });
     },
-    [errorText, patch, t],
+    [errorText, patch, router, t],
   );
 
   const upload = useCallback(

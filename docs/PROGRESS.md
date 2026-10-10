@@ -102,7 +102,7 @@ Follow-up: the supplied password works with Supavisor at port `5432`, username `
 7. `npm run worker -- purge` (orphaned documents) and `rates`/`wallets` refreshes exist but **nothing schedules them**.
 8. Supabase Edge Functions are not used. Processing runs in Next.js route handlers plus the worker script.
 9. Auth configuration is DEV-grade: email confirmation is off locally, there is no MFA and no rate-limit tuning.
-10. There is no UI yet for manual accounts or balances (cash, property), or for renaming or deleting entities.
+10. There is no UI yet for manual accounts or balances (cash, property), or for renaming or deleting entities. Accounts and imported files can be deleted (account settings, Import page).
 11. AI confidence values in mock mode are simulated and labelled as such.
 
 ## Delivery status

@@ -64,6 +64,20 @@ describe("cash flow", () => {
     expect(r.expensesByCountry.find((b) => b.key === "BR")?.amount).toBe("20");
     expect(r.byMonth).toEqual([{ month: "2026-01", income: "3000", expenses: "900", net: "2100" }]);
   });
+
+  it("breaks income down by category, country, institution and currency", () => {
+    const more = [
+      ...txs,
+      flow({ id: "freelance", bookedOn: "2026-01-20", amount: "1200", currency: "BRL", categorySlug: "other_income", categoryKind: "income", country: "BR", institutionId: "j" }),
+    ];
+    const r = computeCashflow(more, fx, "EUR", { from: "2026-01-01", to: "2026-01-31", includeBusiness: false });
+    expect(r.incomeByCategory.map((b) => [b.key, b.amount])).toEqual([["salary", "3000"], ["other_income", "200"]]);
+    expect(r.incomeByCountry.map((b) => [b.key, b.amount])).toEqual([["IT", "3000"], ["BR", "200"]]);
+    expect(r.incomeByInstitution.map((b) => [b.key, b.amount])).toEqual([["i", "3000"], ["j", "200"]]);
+    expect(r.incomeByCurrency.map((b) => [b.key, b.amount])).toEqual([["EUR", "3000"], ["BRL", "200"]]);
+    // A refund lowers expenses; it is never income.
+    expect(r.income).toBe("3200");
+  });
 });
 
 describe("periods", () => {

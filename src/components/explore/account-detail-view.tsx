@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { formatDate, formatMoney, formatNumber, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { syncWallet } from "@/server/actions/wallets";
+import { DeleteDocumentButton } from "@/components/import/delete-document-button";
 import { AccountSettingsSheet } from "./account-settings-sheet";
 import type { AccountDetail } from "@/server/data/account-detail";
 
@@ -54,6 +55,7 @@ export function AccountDetailView({ detail, short, now }: { detail: AccountDetai
           onOpenChange={setEditing}
           account={account}
           entities={detail.entities}
+          transactionCount={detail.transactionCount}
         />
         <div className="mt-5 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
           <div className="flex items-center gap-4">
@@ -266,6 +268,7 @@ export function AccountDetailView({ detail, short, now }: { detail: AccountDetai
                         {d.format} · {formatDate(d.createdAt.slice(0, 10), locale, "medium")}
                       </span>
                     </span>
+                    <DeleteDocumentButton documentId={d.id} filename={d.filename} />
                   </li>
                 ))}
               </ul>

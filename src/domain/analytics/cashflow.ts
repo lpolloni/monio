@@ -50,6 +50,9 @@ export interface CashflowSummary {
   expensesByInstitution: Breakdown[];
   expensesByCurrency: Breakdown[];
   expensesByMerchant: Breakdown[];
+  incomeByCountry: Breakdown[];
+  incomeByInstitution: Breakdown[];
+  incomeByCurrency: Breakdown[];
   byMonth: MonthFlow[];
 }
 
@@ -105,6 +108,9 @@ export function computeCashflow(
   const expInst = new Map<string, { amount: DecimalValue; count: number }>();
   const expCur = new Map<string, { amount: DecimalValue; count: number }>();
   const expMerchant = new Map<string, { amount: DecimalValue; count: number }>();
+  const incCountry = new Map<string, { amount: DecimalValue; count: number }>();
+  const incInst = new Map<string, { amount: DecimalValue; count: number }>();
+  const incCur = new Map<string, { amount: DecimalValue; count: number }>();
   const months = new Map<string, { income: DecimalValue; expenses: DecimalValue }>();
   for (const m of monthsBetween(monthKey(options.from), monthKey(options.to))) {
     months.set(m, { income: new D(0), expenses: new D(0) });
@@ -140,6 +146,9 @@ export function computeCashflow(
       income = income.plus(value);
       if (month) month.income = month.income.plus(value);
       bump(incCat, tx.categorySlug ?? "uncategorized", value);
+      bump(incCountry, tx.country ?? "unknown", value);
+      bump(incInst, tx.institutionId ?? "unknown", value);
+      bump(incCur, tx.currency, value);
     }
   }
 
@@ -159,6 +168,9 @@ export function computeCashflow(
     expensesByInstitution: toBreakdown(expInst),
     expensesByCurrency: toBreakdown(expCur),
     expensesByMerchant: toBreakdown(expMerchant).slice(0, 20),
+    incomeByCountry: toBreakdown(incCountry),
+    incomeByInstitution: toBreakdown(incInst),
+    incomeByCurrency: toBreakdown(incCur),
     byMonth: [...months.entries()].map(([month, v]) => ({
       month,
       income: toPlain(v.income),

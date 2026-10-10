@@ -5,6 +5,7 @@ import { z } from "zod";
 import { todayIso } from "../data/dates";
 import { getSession } from "../data/session";
 import { postProcessUser } from "../processing/post-process";
+import { RemovalBlockedError, removeAccount, removeDocument, type RemovalStats } from "../processing/removal";
 
 type Result = { ok: true } | { ok: false; error: "unauthorized" | "validation" | "not_found" | "failed" };
 
@@ -72,4 +73,44 @@ export async function updateAccountSettings(input: AccountSettingsInput): Promis
   if (entityId !== account.entity_id) await postProcessUser(s.supabase, s.userId, { today: todayIso() });
   refresh();
   return { ok: true };
+}
+
+type RemovalResult = { ok: true; removed: RemovalStats } | { ok: false; error: "unauthorized" | "validation" | "not_found" | "busy" | "failed" };
+
+async function runRemoval(kind: "account" | "document", id: string): Promise<RemovalResult> {
+  if (!z.uuid().safeParse(id).success) return { ok: false, error: "validation" };
+  const s = await getSession();
+  if (!s) return { ok: false, error: "unauthorized" };
+  let removed: RemovalStats;
+  try {
+    removed = kind === "account" ? await removeAccount(s.supabase, s.userId, id) : await removeDocument(s.supabase, s.userId, id);
+  } catch (error) {
+    if (error instanceof RemovalBlockedError) return { ok: false, error: error.reason };
+    console.error(`[removal] ${kind} removal failed`, error instanceof Error ? error.name : "error");
+    return { ok: false, error: "failed" };
+  }
+  await s.supabase.rpc("log_user_action", {
+    p_action: `${kind}.deleted`,
+    p_target_table: kind === "account" ? "accounts" : "documents",
+    p_target_id: id,
+    p_details: { ...removed },
+  });
+  // Transfers, duplicates, recurring series and insights were derived from the removed rows.
+  try {
+    await postProcessUser(s.supabase, s.userId, { today: todayIso() });
+  } catch (error) {
+    console.error("[removal] post-processing failed", error instanceof Error ? error.name : "error");
+  }
+  refresh();
+  return { ok: true, removed };
+}
+
+/** Deletes an account, its transactions and the documents that only fed it. Irreversible. */
+export async function deleteAccount(accountId: string): Promise<RemovalResult> {
+  return runRemoval("account", accountId);
+}
+
+/** Deletes an imported document and everything it brought in. Irreversible. */
+export async function deleteDocument(documentId: string): Promise<RemovalResult> {
+  return runRemoval("document", documentId);
 }

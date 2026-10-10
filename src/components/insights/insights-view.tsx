@@ -51,9 +51,10 @@ export function InsightsView({ data }: { data: InsightsPageData }) {
   }));
   const cryptoData = data.netWorth.map((p) => ({ date: p.date, value: Number(p.crypto), label: money(p.crypto) }));
   const cashflowData = data.cashflow.map((c) => ({ ...c, incomeN: Number(c.income), expensesN: Number(c.expenses) }));
-  const categories = data.categoriesByMonth[month] ?? [];
+  const [flow, setFlow] = useState<"expenses" | "income">("expenses");
+  const categories = (flow === "income" ? data.incomeByMonth[month]?.categories : data.categoriesByMonth[month]) ?? [];
   const catTotal = categories.reduce((s, c) => s + Number(c.amount), 0) || 1;
-  const breakdown = data.breakdowns[month];
+  const breakdown = flow === "income" ? data.incomeByMonth[month] : data.breakdowns[month];
   const groups = (["cash", "investments", "crypto", "other"] as const)
     .map((g) => ({ key: g, value: Number(data.groups[g] ?? "0"), amount: data.groups[g] ?? "0" }))
     .filter((g) => g.value > 0);
@@ -188,13 +189,25 @@ export function InsightsView({ data }: { data: InsightsPageData }) {
         </div>
       </Card>
 
-      {/* Spending breakdowns */}
+      {/* Spending and income breakdowns */}
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.4fr_1fr]">
         <Card>
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-display text-[1.7rem] leading-none text-fg">{t("insights.spendingByCategory")}</h2>
-            <div className="-mx-1 overflow-x-auto px-1 scrollbar-none">
-              <Segmented size="sm" label={t("common.period")} value={month} onChange={setMonth} options={monthOptions} />
+            <h2 className="font-display text-[1.7rem] leading-none text-fg">{t(flow === "income" ? "insights.incomeByCategory" : "insights.spendingByCategory")}</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <Segmented
+                size="sm"
+                label={t("insights.flowKind")}
+                value={flow}
+                onChange={setFlow}
+                options={[
+                  { value: "expenses", label: t("home.expenses") },
+                  { value: "income", label: t("home.income") },
+                ]}
+              />
+              <div className="-mx-1 overflow-x-auto px-1 scrollbar-none">
+                <Segmented size="sm" label={t("common.period")} value={month} onChange={setMonth} options={monthOptions} />
+              </div>
             </div>
           </div>
           {categories.length === 0 ? (
@@ -210,7 +223,7 @@ export function InsightsView({ data }: { data: InsightsPageData }) {
                     <span className="truncate text-[13.5px] text-fg">{t(`categories.${c.key}` as "categories.groceries")}</span>
                     <span className="h-2 overflow-hidden rounded-full bg-surface-2">
                       <motion.span
-                        key={`${month}-${c.key}`}
+                        key={`${flow}-${month}-${c.key}`}
                         className="block h-full rounded-full"
                         style={{ background: `oklch(0.66 0.13 ${hue})` }}
                         initial={{ width: 0 }}
@@ -228,9 +241,9 @@ export function InsightsView({ data }: { data: InsightsPageData }) {
         <div className="flex flex-col gap-6">
           {breakdown ? (
             <>
-              <BreakdownCard title={t("insights.spendingByCountry")} items={breakdown.countries.map((b) => ({ key: b.key, label: b.key === "unknown" ? t("common.unknown") : b.key, amount: b.amount }))} currency={cur} />
-              <BreakdownCard title={t("insights.spendingByInstitution")} items={breakdown.institutions.map((b) => ({ key: b.key, label: b.key === "unknown" ? t("common.unknown") : b.name, amount: b.amount }))} currency={cur} />
-              <BreakdownCard title={t("insights.spendingByCurrency")} items={breakdown.currencies.map((b) => ({ key: b.key, label: b.key, amount: b.amount }))} currency={cur} />
+              <BreakdownCard title={t("insights.spendingByCountry")} positive={flow === "income"} items={breakdown.countries.map((b) => ({ key: b.key, label: b.key === "unknown" ? t("common.unknown") : b.key, amount: b.amount }))} currency={cur} />
+              <BreakdownCard title={t("insights.spendingByInstitution")} positive={flow === "income"} items={breakdown.institutions.map((b) => ({ key: b.key, label: b.key === "unknown" ? t("common.unknown") : b.name, amount: b.amount }))} currency={cur} />
+              <BreakdownCard title={t("insights.spendingByCurrency")} positive={flow === "income"} items={breakdown.currencies.map((b) => ({ key: b.key, label: b.key, amount: b.amount }))} currency={cur} />
             </>
           ) : null}
         </div>
@@ -249,7 +262,7 @@ export function InsightsView({ data }: { data: InsightsPageData }) {
   );
 }
 
-function BreakdownCard({ title, items, currency }: { title: string; items: { key: string; label: string; amount: string }[]; currency: string }) {
+function BreakdownCard({ title, items, currency, positive = false }: { title: string; items: { key: string; label: string; amount: string }[]; currency: string; positive?: boolean }) {
   const locale = useLocale();
   const max = Math.max(...items.map((i) => Number(i.amount)), 1);
   return (
@@ -260,7 +273,7 @@ function BreakdownCard({ title, items, currency }: { title: string; items: { key
           <li key={i.key} className="grid grid-cols-[minmax(0,7rem)_1fr_auto] items-center gap-3 text-[13px]">
             <span className="truncate text-fg">{i.label}</span>
             <span className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-              <span className="block h-full rounded-full bg-accent" style={{ width: `${(Number(i.amount) / max) * 100}%` }} />
+              <span className={cn("block h-full rounded-full", positive ? "bg-positive" : "bg-accent")} style={{ width: `${(Number(i.amount) / max) * 100}%` }} />
             </span>
             <span className="text-right font-medium text-fg tabular">{formatMoney(i.amount, currency, locale, { compact: true })}</span>
           </li>

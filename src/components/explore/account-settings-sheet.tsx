@@ -1,16 +1,17 @@
 "use client";
 
-import { LoaderCircle, Plus } from "lucide-react";
+import { LoaderCircle, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Switch } from "radix-ui";
 import { useId, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
-import { useTranslations } from "use-intl";
+import { useLocale, useTranslations } from "use-intl";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { updateAccountSettings } from "@/server/actions/accounts";
+import { deleteAccount, updateAccountSettings } from "@/server/actions/accounts";
 import type { EntityKind } from "@/domain/accounts/classification";
 
 export interface EntityOption {
@@ -24,12 +25,16 @@ interface AccountSettingsSheetProps {
   onOpenChange: (open: boolean) => void;
   account: { accountId: string; name: string; entityId: string; includeInNetWorth: boolean };
   entities: EntityOption[];
+  transactionCount: number;
 }
 
 const NEW_ENTITY = "__new__";
 
-export function AccountSettingsSheet({ open, onOpenChange, account, entities }: AccountSettingsSheetProps) {
+export function AccountSettingsSheet({ open, onOpenChange, account, entities, transactionCount }: AccountSettingsSheetProps) {
   const t = useTranslations();
+  const locale = useLocale();
+  const router = useRouter();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const id = useId();
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(account.name);
@@ -53,6 +58,17 @@ export function AccountSettingsSheet({ open, onOpenChange, account, entities }: 
       if (r.ok) {
         toast.success(t("common.saved"));
         onOpenChange(false);
+      } else toast.error(t("common.somethingWrong"));
+    });
+  }
+
+  function onDelete() {
+    startTransition(async () => {
+      const r = await deleteAccount(account.accountId);
+      if (r.ok) {
+        toast.success(t("explore.accountDeleted", { count: r.removed.transactions }));
+        onOpenChange(false);
+        router.replace(`/${locale}/explore`);
       } else toast.error(t("common.somethingWrong"));
     });
   }
@@ -133,6 +149,29 @@ export function AccountSettingsSheet({ open, onOpenChange, account, entities }: 
             {pending ? <LoaderCircle className="animate-spin" /> : null}
             {t("common.save")}
           </Button>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-border pt-6">
+          <p className="flex items-start gap-2 text-[13px] leading-relaxed text-fg-muted">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
+            {t("explore.deleteAccountHint", { count: transactionCount })}
+          </p>
+          {confirmingDelete ? (
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" disabled={pending} onClick={() => setConfirmingDelete(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button type="button" variant="danger" disabled={pending} onClick={onDelete}>
+                {pending ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
+                {t("common.deletePermanently")}
+              </Button>
+            </div>
+          ) : (
+            <Button type="button" variant="outline" className="self-start text-negative" onClick={() => setConfirmingDelete(true)}>
+              <Trash2 />
+              {t("explore.deleteAccount")}
+            </Button>
+          )}
         </div>
       </form>
     </Sheet>
