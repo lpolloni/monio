@@ -55,3 +55,5 @@ export { PROMPT_VERSION } from "./prompts";
 export { amountAppearsInLine, dateAppearsInLine, findDescriptionInLine, validateStatementRows } from "./statement-validation";
 export { MOCK_MODEL } from "./providers/mock";
 export { createAiService, type AiHealth, type AiService, type AiServiceDeps, type InterpretOptions } from "./service";
+
+export { DocumentProposalSchema, type DocumentProposal, type DocumentBatch, type DocumentLine } from "./document-contract";

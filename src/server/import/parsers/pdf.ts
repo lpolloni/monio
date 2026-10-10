@@ -17,7 +17,7 @@
  * All document text is untrusted data; nothing in it is ever executed or
  * interpreted as instructions.
  */
-import { extractTextItems, getDocumentProxy } from "unpdf";
+import { extractTextItems, getDocumentProxy, createIsomorphicCanvasFactory, renderPageAsImage } from "unpdf";
 import { z } from "zod";
 import { parseAmount } from "@/domain/import/parse-amount";
 import { inferDateOrder, parseDate, type DateOrder } from "@/domain/import/parse-date";
@@ -25,6 +25,8 @@ import type { AccountType, ParsedAccount, ParsedTransaction, ParseWarning } from
 import { isKnownCurrency, normalizeCurrencyCode } from "@/domain/money/currencies";
 import { dec, toPlain } from "@/domain/money/decimal";
 import { findIban, findInstitutionByText, getInstitution } from "../institution-catalog";
+import { mergeDocumentInterpretation, needsDocumentAi, validateDocumentInterpretation } from "./document-ai";
+import { canLearnPdf, pdfLayoutKey, reusablePdf } from "./pdf-learning";
 import { WarningSink } from "./warnings";
 import { fold, normalizeDescription, sanitizeCell } from "./text";
 import type { AiProposedRow, DocumentParseContext, ParserOutput } from "./types";
@@ -61,11 +63,14 @@ export interface PdfLine {
 // ---------------------------------------------------------------------------
 // Text extraction
 
-export async function extractPdfLines(bytes: Uint8Array): Promise<PdfLine[]> {
+export async function extractPdfLines(bytes: Uint8Array, recoverVisualText = false): Promise<PdfLine[]> {
+  const CanvasFactory = recoverVisualText ? await createIsomorphicCanvasFactory(() => import("@napi-rs/canvas")) : undefined;
+  const worker = recoverVisualText ? await (await import("./pdf-ocr")).createPdfOcrWorker() : undefined;
   // pdf.js may transfer/detach the buffer it receives: give it a copy.
   // The bundled pdf.js (v5) no longer compiles fonts with eval, so there is no
   // `isEvalSupported` switch to turn off; font faces and system fonts are disabled.
   const pdf = await getDocumentProxy(bytes.slice(), {
+    ...(CanvasFactory ? { CanvasFactory } : {}),
     disableFontFace: true,
     useSystemFonts: false,
     stopAtErrors: false,
@@ -76,10 +81,24 @@ export async function extractPdfLines(bytes: Uint8Array): Promise<PdfLine[]> {
     if (pdf.numPages > MAX_PDF_PAGES) throw new PdfRejectedError(`PDF has more than ${MAX_PDF_PAGES} pages.`);
     const { items } = await extractTextItems(pdf);
     const lines: PdfLine[] = [];
-    items.forEach((pageItems, pageIndex) => {
+    for (const [pageIndex, pageItems] of items.entries()) {
       const fragments = pageItems
         .filter((it) => it.str && it.str.trim())
         .map((it) => ({ x: it.x, y: it.y, width: it.width, size: it.fontSize || 10, str: it.str }));
+      if (worker) {
+        const page = await pdf.getPage(pageIndex + 1);
+        const height = page.getViewport({ scale: 1 }).height;
+        const image = await renderPageAsImage(pdf, pageIndex + 1, { scale: 2, canvasImport: () => import("@napi-rs/canvas") });
+        const { data } = await worker.recognize(Buffer.from(image), {}, { blocks: true });
+        for (const block of data.blocks ?? []) for (const paragraph of block.paragraphs) for (const row of paragraph.lines) for (const word of row.words) {
+          if (word.confidence < 40 || !word.text.trim()) continue;
+          const x = word.bbox.x0 / 2, right = word.bbox.x1 / 2;
+          const baseline = height - row.baseline.y0 / 2;
+          // Native glyphs remain authoritative. Add only text in previously empty regions.
+          if (fragments.some(f => f.x < right && f.x + f.width > x && Math.abs(f.y - baseline) <= Math.max(2, f.size * 0.4))) continue;
+          fragments.push({ x, y: baseline, width: right - x, size: (word.bbox.y1 - word.bbox.y0) / 2, str: word.text });
+        }
+      }
       // Top to bottom, then left to right.
       fragments.sort((a, b) => b.y - a.y || a.x - b.x);
       const groups: (typeof fragments)[] = [];
@@ -102,15 +121,21 @@ export async function extractPdfLines(bytes: Uint8Array): Promise<PdfLine[]> {
           if (text && !touching) text += " ";
           const start = text.length;
           text += str;
-          lineItems.push({ x: f.x, width: f.width, text: str, start, end: text.length });
+          const previousItem = lineItems.at(-1);
+          if (touching && previousItem) {
+            previousItem.text += str;
+            previousItem.width = f.x + f.width - previousItem.x;
+            previousItem.end = text.length;
+          } else lineItems.push({ x: f.x, width: f.width, text: str, start, end: text.length });
           previous = f;
           if (text.length > 2000) break;
         }
         if (text) lines.push({ line: lines.length + 1, page: pageIndex + 1, text: text.slice(0, 2000), items: lineItems });
       }
-    });
+    }
     return lines;
   } finally {
+    await worker?.terminate();
     await pdf.loadingTask.destroy();
   }
 }
@@ -305,14 +330,14 @@ function trailingAmount(tokens: string[]): TrailingAmount | undefined {
 
 const CARD_MARKERS =
   /\b(fatura|cartao de credito|credit card|carta di credito|estratto conto carta|tarjeta de credito|kreditkarte|carte de credit|card statement|limite disponivel|pagamento minimo)\b/;
-const CHECKING_MARKERS = /\b(conta corrente|conto corrente|current account|checking account|girokonto|compte courant|cuenta corriente|extrato de conta)\b/;
+const CHECKING_MARKERS = /\b(conta corrente|conta digital|conto corrente|current account|checking account|girokonto|compte courant|cuenta corriente|extrato de conta)\b/;
 const PERIOD_MARKERS = /\b(periodo|period|statement period|dal|from|von|zeitraum|referente|competencia|movimentacao|movimenti)\b/;
 /** Words joining the two dates of a period: "01/03/2026 a 31/03/2026", "1 Mar 2026 - 31 Mar 2026". */
-const PERIOD_CONNECTOR = /^\s*(a|al|ate|to|au|bis|hasta|until|till|-|–|—)\s*$/;
+const PERIOD_CONNECTOR = /^\s*(a|al|ate|to|au|bis|hasta|until|till|-|–|—)\s*:?\s*$/;
 /** Header/summary wording: such lines are never sent to the AI as transactions. */
 const SUMMARY_WORDS = /\b(saldo|balance|total|totale|totais|vencimento|due date|scadenza|limite|minimo|minimum|emissao|emissione|issued)\b/;
 const OPENING_LINE = /^(saldo (anterior|inicial|iniziale|precedente|di apertura|de abertura)|opening balance|previous balance|balance brought forward|anfangssaldo|solde (initial|precedent))\b/;
-const CLOSING_LINE = /^(saldo (final|finale|di chiusura|atual)|closing balance|new balance|balance carried forward|endsaldo|solde final)\b/;
+const CLOSING_LINE = /^(saldo (disponivel no final do periodo(?: filtrado)?|final|finale|di chiusura|atual)|closing balance|new balance|balance carried forward|endsaldo|solde final)\b/;
 const OTHER_BALANCE_LINE =
   /^(saldo|balance|total|totale|totais|subtotal|summe|limite|vencimento|due date|scadenza|pagamento minimo|minimum payment)\b/;
 const MONTH_ALTERNATION = Object.keys(MONTHS)
@@ -411,11 +436,158 @@ export function amountAppearsIn(magnitude: string, text: string): boolean {
 }
 
 export async function parsePdf(bytes: Uint8Array, ctx: DocumentParseContext = {}): Promise<ParserOutput> {
-  return parsePdfLines(await extractPdfLines(bytes), ctx);
+  let lines = await extractPdfLines(bytes);
+  // A full-document fallback supersedes the old isolated-line assist.
+  const original = await parsePdfLines(lines, ctx.documentAssist ? { ...ctx, aiAssist: undefined } : ctx);
+  if (!ctx.documentAssist || !lines.length) return original;
+  const layout = ctx.pdfLearning ? pdfLayoutKey(original, lines.flatMap(l => { const c = detectColumns(l); return c ? [c] : []; })) : undefined;
+  // A learned reader is a fast path, not permission to skip current-file validation.
+  if (ctx.pdfLearning && layout) {
+    try {
+      const confirmations = await ctx.pdfLearning.confirmations(layout);
+      if (confirmations >= 2 && reusablePdf(original, lines)) return original;
+      if (confirmations && !reusablePdf(original, lines)) await ctx.pdfLearning.invalidate(layout);
+    } catch { console.warn("[import] PDF learning unavailable; using document AI"); }
+  }
+  if (!ctx.pdfLearning && !needsDocumentAi(original)) return original;
+  try {
+    // Unknown layouts may mix native text and outlined/image-only headers.
+    // Bound visual recovery to small statements; oversized documents retain native extraction.
+    if (needsDocumentAi(original) && lines.at(-1)!.page <= 20) {
+      console.info("[import] Local PDF visual text recovery started");
+      try {
+        lines = await extractPdfLines(bytes, true);
+        console.info("[import] Local PDF visual text recovery completed");
+      }
+      catch { original.statement.warnings.push({ code: "row_unreadable", message: "Visual PDF text recovery failed; only native text was available." }); }
+    }
+    const result = await ctx.documentAssist(lines);
+    const interpreted = validateDocumentInterpretation(result);
+    if (!interpreted.statement.accounts.some(a => a.transactions.length || a.openingBalance || a.closingBalance)) {
+      original.statement.warnings.push(...interpreted.statement.warnings, { code: "ai_rejected_row", message: "AI could not produce a source-verified document interpretation." });
+      return original;
+    }
+    const recoveredOriginal = await parsePdfLines(lines, { ...ctx, aiAssist: undefined });
+    if (ctx.pdfLearning && layout) {
+      try {
+        if (canLearnPdf(recoveredOriginal, interpreted, result, lines)) await ctx.pdfLearning.confirm(layout);
+        else await ctx.pdfLearning.invalidate(layout);
+      } catch { console.warn("[import] PDF learning could not be updated"); }
+    }
+    return mergeDocumentInterpretation(recoveredOriginal, interpreted);
+  } catch {
+    original.statement.warnings.push({ code: "ai_rejected_row", message: "Document AI interpretation failed; deterministic extraction was retained." });
+    return original;
+  }
+}
+
+/** Nubank account PDFs group undated, wrapped movements under dated daily totals. */
+function parseNubankAccountLines(lines: PdfLine[]): ParserOutput | undefined {
+  const firstPeriod = lines.findIndex((line) => fullDates(line.text, "DMY").length === 2 && /valores em r\$/i.test(line.text));
+  if (firstPeriod < 0) return undefined;
+  // Match the issuer's administrative footer, never bank names in counterparties.
+  const issuer = lines.some((line) => /^(?:nu financeira s\.a\.|nu pagamentos s\.a\.)/i.test(line.text) || /nubank\.com\.br\/contatos/.test(line.text));
+  const holder = lines.slice(0, firstPeriod).map((line) => line.text).join(" ");
+  const identity = /ag[eê]ncia\s*:?[ ]*(\d+)\s+conta\s*:?[ ]*(\d[\d .]*-\d+)\b/i.exec(holder);
+  if (!issuer || !identity || !/\b(?:CPF|CNPJ)\b/.test(holder)) return undefined;
+  const dates = fullDates(lines[firstPeriod]!.text, "DMY");
+  const period = { start: dates[0]!.date, end: dates[1]!.date };
+  if (period.start > period.end) return undefined;
+  const business = /\bCNPJ\b/.test(holder) && !/\bCPF\b/.test(holder);
+  const warnings = new WarningSink();
+  const transactions: ParsedTransaction[] = [];
+  const account: ParsedAccount = {
+    key: "default", type: "checking", currency: "BRL", country: "BR",
+    identifier: `nubank:${identity[1]}:${identity[2]!.replace(/\D/g, "")}`,
+    identifierMask: identity[2]!.replace(/\D/g, "").slice(-4),
+    transactions,
+  };
+  let date: string | null = null;
+  let dateRow: number | undefined;
+  let group: { amount: string; total: ReturnType<typeof dec>; line: number } | undefined;
+  let pending: ParsedTransaction | undefined;
+  let pageHeader = true;
+  let footer = false;
+  let page = 0;
+  const finishGroup = () => {
+    if (group && !group.total.equals(group.amount)) warnings.add({
+      code: "balance_mismatch", row: group.line,
+      message: "Extracted movements do not match the printed daily total. Some transactions may be missing.",
+    });
+  };
+  for (const line of lines) {
+    if (line.page !== page) { page = line.page; pageHeader = true; footer = false; }
+    const text = fold(line.text);
+    if (pageHeader) {
+      if (/valores em r\$/.test(text) && fullDates(line.text, "DMY").length === 2) pageHeader = false;
+      continue;
+    }
+    if (/^(tem alguma duvida|caso a solucao|o saldo liquido|nao nos responsabilizamos|asseguramos a autenticidade|nu financeira|nu pagamentos|extrato gerado)/.test(text)) footer = true;
+    if (footer) continue;
+    const prefix = datePrefix(line.text, "DMY");
+    const body = prefix ? fold(line.text.slice(prefix.length).trim()) : text;
+    if (/^total de (entradas|saidas)\b/.test(body)) {
+      if (!prefix && !date) continue; // Monthly summary, before any dated movements.
+      finishGroup(); pending = undefined;
+      if (prefix) {
+        date = completeYear(prefix, period, undefined);
+        dateRow = line.line;
+        if (date && (date < period.start || date > period.end)) date = null;
+      }
+      const value = trailingAmount(line.text.split(" "));
+      if (!date || !value) {
+        group = undefined;
+        warnings.add({ code: "row_unreadable", row: line.line, message: "Daily total has no readable date or amount." });
+        continue;
+      }
+      group = { amount: body.startsWith("total de saidas") ? toPlain(dec(value.magnitude).negated()) : value.magnitude, total: dec("0"), line: line.line };
+      continue;
+    }
+    if (/^(saldo inicial|saldo final do periodo)\b/.test(text)) {
+      const value = trailingAmount(line.text.split(" "));
+      if (value) {
+        const amount = value.sign === "minus" ? toPlain(dec(value.magnitude).negated()) : value.magnitude;
+        if (text.startsWith("saldo inicial")) account.openingBalance = { amount, asOf: period.start };
+        else account.closingBalance = { amount, asOf: period.end };
+      }
+      continue;
+    }
+    if (/^(saldo|total|rendimento liquido|movimentacoes|r\$)\b/.test(text)) continue;
+    const tokens = line.text.split(" ").filter(Boolean);
+    const value = trailingAmount(tokens);
+    if (date && group && value) {
+      const description = normalizeDescription(tokens.slice(0, tokens.length - value.consumed).join(" "));
+      if (!/\p{L}/u.test(description)) {
+        warnings.add({ code: "row_unreadable", row: line.line, message: "Movement has no readable description." });
+        pending = undefined; continue;
+      }
+      const amount = dec(group.amount).isNegative() ? toPlain(dec(value.magnitude).negated()) : value.magnitude;
+      pending = {
+        bookedOn: date, description, amount, currency: "BRL", sourceRow: line.line, extraction: "heuristic",
+        raw: { line: line.text, page: String(line.page), date, amount: tokens.slice(tokens.length - value.consumed).join(" "), date_source_row: String(dateRow) },
+      };
+      transactions.push(pending);
+      group.total = group.total.plus(amount);
+    } else if (pending && !value) {
+      // Preserve wrapped beneficiary details, including a continuation on the next page.
+      pending.description = normalizeDescription(`${pending.description} ${line.text}`).slice(0, 1000);
+      pending.raw.line = `${pending.raw.line}\n${line.text}`.slice(0, 2000);
+    } else if (date && value && !group) {
+      warnings.add({ code: "row_unreadable", row: line.line, message: "Movement has no preceding daily date and direction." });
+    }
+  }
+  finishGroup();
+  return {
+    statement: { format: "pdf", profile: business ? "nubank-pj-pdf" : "nubank-account-pdf", accounts: [account], warnings: warnings.list },
+    profileInstitution: { slug: business ? "nubank-pj" : "nubank", weak: false, evidence: "Nubank issuer footer and account-holder header" },
+    statedPeriod: period,
+  };
 }
 
 /** Deterministic parsing of already-extracted lines (+ optional AI assist for ambiguous ones). */
 export async function parsePdfLines(lines: PdfLine[], ctx: DocumentParseContext = {}): Promise<ParserOutput> {
+  const nubank = parseNubankAccountLines(lines);
+  if (nubank) return nubank;
   const warnings = new WarningSink();
 
   // Pass 1: numeric date order across the whole document (header dates such as
@@ -447,6 +619,12 @@ export async function parsePdfLines(lines: PdfLine[], ctx: DocumentParseContext 
   let period: { start: string; end: string } | undefined;
   let reference: string | undefined;
   for (const line of headerLines) {
+    const monthHeader = /^([a-zÀ-ÿ]+)\/(\d{4})$/i.exec(line.text.trim());
+    if (!period && monthHeader) {
+      const month = MONTHS[fold(monthHeader[1]!)];
+      const start = month ? iso(Number(monthHeader[2]), month, 1) : null;
+      if (start) period = { start, end: new Date(Date.UTC(Number(monthHeader[2]), month, 0)).toISOString().slice(0, 10) };
+    }
     const dates = fullDates(line.text, order);
     for (const d of dates) if (!reference || d.date > reference) reference = d.date;
     if (!period && dates.length >= 2) {
@@ -463,8 +641,12 @@ export async function parsePdfLines(lines: PdfLine[], ctx: DocumentParseContext 
   const institutionMatch = findInstitutionByText(headerText);
   const currency = resolvePdfCurrency(documentCurrency, institutionMatch?.slug, ctx.fallbackCurrency, warnings);
 
-  // Does this statement write debits with an explicit minus sign?
-  const usesMinus = candidates.some((c) => {
+  // In an amount/balance table, a negative running balance says nothing
+  // about the sign convention of unsigned movements.
+  const amountColumns = lines.map(detectColumns).find(value => value !== undefined);
+  const usesMinus = candidates.some(c => {
+    if (amountColumns) return (columnAmounts(c.line, c.date.length, amountColumns) ?? []).some(a =>
+      a.role !== "balance" && (a.reading.sign === "minus" || a.reading.sign === "debit"));
     const t = trailingAmount(c.rest.split(" "));
     return t?.sign === "minus" || t?.sign === "debit";
   });
@@ -555,6 +737,13 @@ export async function parsePdfLines(lines: PdfLine[], ctx: DocumentParseContext 
   const account: ParsedAccount = { key: "default", currency, transactions };
   const type: AccountType | undefined = isCard ? "credit_card" : CHECKING_MARKERS.test(foldedHeader) ? "checking" : undefined;
   if (type) account.type = type;
+  const firstMovement = Math.min(...candidates.map(c => c.line.line));
+  const holderHeader = lines.filter(l => l.line < firstMovement).map(l => l.text).join(" ");
+  const identity = /\bconta\s*:\s*(\d[\d.-]*)/i.exec(holderHeader);
+  if (identity && institutionMatch && /\bag[eê]ncia\s*:/i.test(holderHeader)) {
+    account.identifier = `bank:${institutionMatch.slug}:${identity[1]!.replace(/\D/g, "")}`;
+    account.identifierMask = identity[1]!.replace(/\D/g, "").slice(-4);
+  }
   const iban = findIban(headerText);
   if (iban) {
     account.identifier = iban;
@@ -568,7 +757,10 @@ export async function parsePdfLines(lines: PdfLine[], ctx: DocumentParseContext 
   if (closing?.asOf) account.closingBalance = closing;
 
   return {
-    statement: { format: "pdf", accounts: [account], warnings: warnings.list, profile: isCard ? "pdf-card-lines" : "pdf-lines" },
+    statement: { format: "pdf", accounts: [account], warnings: warnings.list,
+      profile: !isCard && columns?.some(c => c.role === "amount") && columns.some(c => c.role === "balance") &&
+        account.identifier && account.closingBalance && period && transactions.length === candidates.length && !warnings.list.length
+        ? "pdf-column-statement" : isCard ? "pdf-card-lines" : "pdf-lines" },
     institutionText: headerText,
     statedPeriod: period,
   };
@@ -619,7 +811,7 @@ function readCandidate(c: Candidate, o: ReadOptions): { tx: ParsedTransaction } 
     rawAmount = tokens.slice(tokens.length - t.consumed).join(" ");
     description = descTokens.join(" ");
   }
-  description = normalizeDescription(description);
+  description = normalizeDescription(description.replace(/^(?:as\s+)?\d{1,2}:\d{2}(?::\d{2})?\s+/i, "").replace(/^(?:às\s+)?\d{1,2}:\d{2}(?::\d{2})?\s+/i, ""));
   if (!/\p{L}/u.test(description)) return { reason: "no description" };
 
   const tx: ParsedTransaction = {

@@ -1,8 +1,32 @@
 # Tasks
 
+Persistent PDF reader learning (2026-10-10): real-AI imports now interpret unseen/unconfirmed layouts even when a native reader recognizes them. Worker-only, user-scoped `pdf_reader_evidence` stores structural/version hashes and distinct original-file hashes; no text, financial values, model code or account identifiers. Two independently source-validated, fully covered interpretations must agree with the bounded native reader on identity, type, currency, period, balances and every movement, with opening/closing reconciliation. Subsequent matching uploads re-extract current values and repeat integrity/content checks before skipping document AI. New monetary content, conflicts and incomplete interpretation prevent promotion or invalidate matching evidence; database-learning failures fall back to AI. Column geometry/issuer/reader changes produce a different signature. Known complete native layouts avoid unnecessary OCR during training. Uppercase Portuguese date connectors are now accepted by AI source validation.
+
+Scope: this certifies existing Nubank grouped and generic amount/balance table readers; it does not generate a new arbitrary parser from model output. Unknown layouts without a safe reader remain on document AI. Automated compilation of additional declarative layout recipes and user-confirmed learning for documents without opening/closing reconciliation remain TODO. Originals and previous imports are unchanged.
+
+Migration 008 was applied individually to the configured LAN DEV database (existing migration history is still unreconciled). SQL checks with rolled-back fictional users verified tenant isolation, authenticated insert/delete denial and anonymous read denial. Added repeatable integration coverage for distinct originals, ownership, permissions and invalidation; the localhost-only integration suite was not run against LAN. Unit verification: 701 tests / 41 files; typecheck, ESLint and production build passed.
+
+XP digital-account PDF correction (2026-10-10): verified a real locally supplied export with four reverse-ordered movements, an explicit `De: … Até: …` period and a final available balance. The generic parser previously inferred debit conventions from the last value (running balance), rejected unsigned credits and missed the colon-delimited period/closing label. Amount-column sign conventions, checking/digital account headers, source account identity, time prefixes and available-final-balance labels are now handled. Fully verified amount/balance tables use `pdf-column-statement`, avoiding unnecessary document AI while ambiguous/unknown layouts retain AI fallback. Fictional regression tests cover the layout and ensure a negative running balance cannot establish movement direction.
+
+Targeted DEV repair: matched the local PDF SHA-256 and existing account identity, verified all three existing movements against source date/amount/currency, aligned only their dedup fingerprints, then ran a user-scoped reprocessing worker. Preserved original IDs/descriptions/raw data and financial values; inserted only the missing movement, skipped three duplicates, created no accounts. Verified four persisted transactions, period 2026-07-12 through 2026-10-10, one closing balance 3.79 BRL dated 2026-10-10, document `processed` and no open document review items. Resolved the obsolete incomplete-document question after successful verification. Personal sources and the temporary repair worker were not committed.
+
+Santander completion verification (2026-10-10): observed the authenticated live import from `identifying` through `categorizing` to `needs_review` / 100%, finished at 15:31:41 UTC after ~4m25s. Persisted stats: Santander Brasil, one account, three organized transactions, zero duplicates, 28 warnings and one open review item. OCR completed in ~4.5s; document AI consumed its four-minute budget. Added section-level AI logs and awaited progress callbacks updating the job from 25% toward 34% between sections, so multi-section work is visible. Typecheck, ESLint and all 693 tests / 40 files passed, including callback ordering. No manual repair/re-import of this successful job was performed.
+
+Santander stalled-import fix (2026-10-10): Next/Turbopack turned `require.resolve()` for the external OCR language into a module identifier, causing ENOENT before AI and a pending Tesseract initialization. Use the language package's runtime `langPath`, preflight its file, reject worker errors and bound initialization to 20 seconds. Verified OCR initialization inside a real Next dev route (temporary probe removed). UI polling now covers the ten-minute processing window and exits with an explicit wait-expired message. Released only the affected stuck job at `identifying` as failed so re-upload can retry; no transactions were deleted or changed.
+
 Status legend: **DONE** means implemented and covered by the tests listed in [TEST_RESULTS.md](TEST_RESULTS.md). **IN_PROGRESS** means partly built. **TODO** means not started. **BLOCKED** means it cannot be done in this environment; the reason is given.
 
 ## Phase 0 — Environment & architecture
+Signup follow-up (2026-10-10): fix LAN Auth SMTP or enable DEV `ENABLE_EMAIL_AUTOCONFIRM=true` and recreate Auth. Actual signup returns HTTP 500 "Error sending confirmation email"; UI messages and pending-confirmation handling corrected. Full signup verification awaits server configuration repair.
+
+API endpoint reconciliation (2026-10-10): corrected `.env` Supabase API port to `8000`; verified the endpoint recognizes `profiles`. Pending: restart the app and verify signup/signin using a session issued by the corrected endpoint.
+
+Follow-up (2026-10-10): verify/apply the seven migrations on the configured LAN DEV Supabase and refresh its PostgREST schema cache (`profiles` currently returns `PGRST205`). Then check the signup bootstrap trigger and any users created before migrations. Diagnosis and clearer profile lookup errors are implemented; remote database repair remains pending.
+
+Direct verification is blocked by database authentication (`28P01`); correct the DEV database connection credentials and use `sslmode=disable` for this endpoint before checking migration history. No database changes were made.
+
+Resolved connection follow-up: DEV Supavisor works on port `5432` with `postgres.your-tenant-id`; `.env` database URL corrected. `profiles` and signup trigger exist there; CLI migration history does not. Reconcile app API port `54321` (missing table) with port `8000` (table recognized) and inspect schema compatibility before applying migrations.
+
 | Task | Status | Notes |
 |---|---|---|
 | Next.js 16 scaffold (App Router, Cache Components, Turbopack, TS strict) | DONE | |
@@ -36,10 +60,15 @@ Status legend: **DONE** means implemented and covered by the tests listed in [TE
 | Entity management page (rename/delete entities) | TODO | Entities can be created from account settings only |
 
 ## Phase 3 — Document import
+2026-10-10 Santander follow-up: DONE — bounded local OCR supplements missing outlined headers in mixed PDFs; source validation handles month/year periods, inherited dates, reference-column placeholders, stable account columns and explicit dated balances. Real export/parser replay recovered all three checking movements and reconciled balances. Existing imports require explicit reprocessing; DB integration/E2E not rerun. Fully scanned import remains TODO.
+
+2026-10-10: full-document AI interpretation for generic/unknown and incomplete text PDFs is implemented. It preserves positioned source context, validates every financial proposal, reuses private unknown issuers, preserves deterministic results and flags incomplete work for review. A real oMLX test through the PDF parser passed on a fictional unknown layout. Database integration regressions were added but remain unexecuted here (the suite requires localhost; the available stack is on the LAN). Existing imports still require explicit reprocessing.
+
 | Task | Status | Notes |
 |---|---|---|
 | Format detection + parsers: CSV, OFX, XLSX, PDF (text layer) | DONE | |
-| Institution profiles: Nubank, Nubank PJ, XP, Santander, BBVA, N26, Revolut, MPS + generic | IN_PROGRESS | Built from public layout knowledge and **fictional fixtures**. Not validated against real exports. |
+| Full-document AI fallback for unknown/incomplete text PDFs | DONE | Source-verified metadata/movements; bounded overlapping sections; fail-safe deterministic merge; live fictional oMLX test passed. Mixed text/outlined PDFs have bounded local recovery; fully scanned import remains separate. |
+| Institution profiles: Nubank, Nubank PJ, XP, Santander, BBVA, N26, Revolut, MPS + generic | IN_PROGRESS | Nubank personal-account grouped PDF layout corrected and checked locally against two real monthly exports (31 + 4 movements, balanced, same account identity); fictional regression tests added. Other layouts still need real-export validation. |
 | Intake: hashing, file-level dedupe, private storage under the owner's folder, size/MIME limits | DONE | |
 | Pipeline: accounts, idempotent transactions (fingerprints), balances, job status, summary | DONE | |
 | Duplicate detection, transfer matching (one-to-one, cross-currency with wording), cross-entity questions | DONE | |
@@ -53,7 +82,7 @@ Status legend: **DONE** means implemented and covered by the tests listed in [TE
 | AI provider abstraction: mock / oMLX (OpenAI-compatible) / cloud / disabled; strict zod schemas | DONE | |
 | Cloud gating: env flag + per-user consent; no automatic cloud fallback | DONE | |
 | Rules first, AI for leftovers, confident answers learned as rules | DONE | AI confidence values are labeled simulated |
-| Real oMLX / cloud model verification | BLOCKED | No reachable model server or API key in this sandbox |
+| Real oMLX / cloud model verification | IN_PROGRESS | Live LAN oMLX full-document test passed on a fictional unknown-bank PDF (~21 seconds, source-verified output). Cloud models and broader bank layouts remain unverified. |
 | Smart Inbox: transfer pairs, duplicates, uncategorized, subscriptions, unknown institution, stale sources | DONE | |
 | Evidence-based, coverage-aware insights | DONE | Deterministic text, no LLM phrasing |
 

@@ -53,7 +53,7 @@ export function dateCandidatesInLine(text: string): DateCandidates {
   }
   // "05 MAR 2026", "5 de março de 2026", "05-mag-26", "05 MAR"
   for (const m of text.matchAll(
-    /(?<!\d)(\d{1,2})(?:\s+de)?[\s/.-]*([A-Za-zÀ-ÿ]{3,9})\.?(?:(?:\s+de)?[\s/.-]*(\d{4}|\d{2})(?!\d))?/g,
+    /(?<!\d)(\d{1,2})(?:\s+de)?[\s/.-]*([A-Za-zÀ-ÿ]{3,9})\.?(?:(?:\s+de)?[\s/.-]*(\d{4}|\d{2})(?!\d))?/gi,
   )) {
     const day = m[1]!;
     const month = m[2]!;

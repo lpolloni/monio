@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DocumentProposalSchema } from "../document-contract";
 import { aiError } from "../result";
 import { requestJson } from "./http";
 import type { AiProvider, ProviderHealth, ProviderRequest, ProviderResponse, ProviderRuntime } from "./types";
@@ -61,7 +62,10 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleOptions)
         { role: "user", content: request.user },
       ],
       temperature: 0,
-      ...(withResponseFormat && { response_format: { type: "json_object" } }),
+      ...(id === "omlx" && request.task === "interpret_document" && { enable_thinking: false, max_tokens: 6000 }),
+      ...(withResponseFormat && { response_format: id === "omlx" && request.task === "interpret_document"
+        ? { type: "json_schema", json_schema: { name: "statement_document", strict: true, schema: z.toJSONSchema(DocumentProposalSchema) } }
+        : { type: "json_object" } }),
     });
   }
 
@@ -72,7 +76,8 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleOptions)
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
       const url = `${baseUrl}/chat/completions`;
-      let outcome = await requestJson(url, { method: "POST", headers: headers(), body: body(request, useResponseFormat) }, options);
+      const runtime = request.task === "interpret_document" && request.timeoutMs ? { ...options, timeoutMs: Math.min(options.timeoutMs, request.timeoutMs) } : options;
+      let outcome = await requestJson(url, { method: "POST", headers: headers(), body: body(request, useResponseFormat) }, runtime);
       if (
         !outcome.ok &&
         useResponseFormat &&
@@ -80,7 +85,7 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleOptions)
         RESPONSE_FORMAT_REJECTED.test(outcome.bodyText ?? "")
       ) {
         useResponseFormat = false;
-        outcome = await requestJson(url, { method: "POST", headers: headers(), body: body(request, false) }, options);
+        outcome = await requestJson(url, { method: "POST", headers: headers(), body: body(request, false) }, runtime);
       }
       if (!outcome.ok) return { ok: false, error: outcome.error };
 

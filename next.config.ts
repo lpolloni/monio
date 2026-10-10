@@ -11,12 +11,13 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
+  allowedDevOrigins: ['192.168.68.104'],
   experimental: {
     // Uploads pass through src/proxy.ts; allow the import limit (bucket max 15 MB) plus multipart overhead.
     proxyClientMaxBodySize: "16mb",
   },
   // Parsers rely on Node-only packages; keep them out of the bundler.
-  serverExternalPackages: ["exceljs", "unpdf"],
+  serverExternalPackages: ["exceljs", "unpdf", "@napi-rs/canvas", "tesseract.js", "@tesseract.js-data/por"],
   turbopack: {
     rules: {
       "*.css": {

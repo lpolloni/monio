@@ -6,6 +6,7 @@ import { hashIdentifier } from "@/domain/transactions/normalize";
 import { aiConfigFromEnv, createAiService, type AiService } from "@/server/ai";
 import { receiveUpload, sha256Hex, UploadRejectedError, type UploadResult } from "@/server/import/intake";
 import { runImportJob, type ImportStats } from "@/server/import/pipeline";
+import { chatResponse, fakeFetch, OMLX_CONFIG } from "../../src/server/ai/test-utils";
 import { buildPdf } from "../helpers/pdf-writer";
 import { adminClient, createTestUser, type TestClient, type TestUser } from "./helpers";
 
@@ -288,6 +289,63 @@ describe("document import pipeline (local Supabase)", () => {
     expect(outcome.stats).toMatchObject({ transactionsOrganized: 6, recurringDetected: 1 });
     const { data: job } = await user.client.from("import_jobs").select("ai_provider").eq("id", result.jobId).single();
     expect(job!.ai_provider).toBeNull();
+  });
+
+  it("unifies two months of grouped Nubank PDFs in one account, including concurrent imports", async () => {
+    const identifier = "nubank:0001:76543210";
+    const uploads = await Promise.all(["SETEMBRO", "OUTUBRO"].map(async (month) => {
+      const bytes = buildPdf([[
+        "Cliente Fictício", "CPF •••.111.222-•• Agência 0001 Conta", "7654321-0",
+        `01 DE ${month} DE 2026 a 09 DE ${month} DE 2026 VALORES EM R$`,
+        "Saldo inicial 100,00", "Saldo final do período 90,00", "Movimentações",
+        `02 ${month === "SETEMBRO" ? "SET" : "OUT"} 2026 Total de saídas - 10,00`,
+        "Pagamento de boleto efetuado EMPRESA FICTICIA 10,00",
+        "Nu Financeira S.A. - Nu Pagamentos S.A.", "CNPJ: 00.000.000/0001-00",
+      ]]);
+      const result = await receiveUpload(user.client, user.id, { bytes, filename: `nubank-${month}.pdf` }, { maxBytes: MAX_BYTES });
+      return { bytes, result };
+    }));
+    const outcomes = await Promise.all(uploads.map(({ bytes, result }) => runImportJob(user.client, user.id, result.jobId, { bytes, today: TODAY, ai: null })));
+    for (const outcome of outcomes) expect(outcome.stats).toMatchObject({ transactionsOrganized: 1, institution: { slug: "nubank" } });
+    const { data: accounts, error } = await user.client.from("accounts").select("id, institution_id").eq("external_ref_hash", hashIdentifier(identifier));
+    expect(error).toBeNull();
+    expect(accounts).toHaveLength(1);
+    expect(await countTransactions(user.client, { accountIds: [accounts![0]!.id] })).toBe(2);
+    const { data: balances } = await user.client.from("account_balances").select("as_of").eq("account_id", accounts![0]!.id).order("as_of");
+    expect(balances!.map(b => b.as_of)).toEqual(["2026-09-01", "2026-09-09", "2026-10-01", "2026-10-09"]);
+  });
+
+  it("organizes unknown PDF layouts with source-verified AI and reuses a private issuer/account across months", async () => {
+    const { fetchImpl } = fakeFetch(call => {
+      const body = JSON.stringify(call.body);
+      const month = body.includes("01/10/2026") ? "10" : "09";
+      return chatResponse(JSON.stringify({
+        institution: { name: "Banco Ficticio Aurora", line: 1 },
+        period: { start: `2026-${month}-01`, startLine: 3, end: `2026-${month}-09`, endLine: 3 },
+        accounts: [{ key: "account-1", type: "checking", currency: "BRL", currencyLine: 3, identifier: "12345-6", identifierLine: 2,
+          openingBalance: { amount: "100", amountLine: 4, asOf: `2026-${month}-01`, dateLine: 3 },
+          closingBalance: { amount: "90", amountLine: 8, asOf: `2026-${month}-09`, dateLine: 3 },
+          transactions: [{ line: 6, date: `2026-${month}-02`, dateLine: 5, description: "Pagamento LOJA FICTICIA", descriptionLines: [6], amount: "-10", amountLine: 7, directionLine: 5 }],
+        }], unparsedLines: [],
+      }));
+    });
+    const documentAi = createAiService(OMLX_CONFIG, { fetchImpl });
+    for (const month of ["09", "10"]) {
+      const bytes = buildPdf([[
+        "Banco Ficticio Aurora", "Conta 12345-6", `Periodo 01/${month}/2026 a 09/${month}/2026 BRL`,
+        "Saldo inicial 100,00", `02/${month}/2026 Saidas`, "Pagamento LOJA FICTICIA", "10,00", "Saldo final 90,00",
+      ]]);
+      const uploaded = await receiveUpload(user.client, user.id, { bytes, filename: `unknown-${month}.pdf` }, { maxBytes: MAX_BYTES });
+      const outcome = await runImportJob(user.client, user.id, uploaded.jobId, { bytes, today: TODAY, ai: documentAi });
+      expect(outcome.stats).toMatchObject({ transactionsOrganized: 1, accountsIdentified: 1 });
+    }
+    const { data: institutions, error } = await user.client.from("institutions").select("id, owner_id").eq("owner_id", user.id).eq("name", "Banco Ficticio Aurora");
+    expect(error).toBeNull(); expect(institutions).toHaveLength(1);
+    const { data: accounts } = await user.client.from("accounts").select("id").eq("institution_id", institutions![0]!.id);
+    expect(accounts).toHaveLength(1);
+    expect(await countTransactions(user.client, { accountIds: [accounts![0]!.id] })).toBe(2);
+    const { data: hidden } = await other.client.from("institutions").select("id").eq("id", institutions![0]!.id);
+    expect(hidden).toEqual([]);
   });
 
   it("rejects unsupported, empty and oversized uploads before storing anything", async () => {

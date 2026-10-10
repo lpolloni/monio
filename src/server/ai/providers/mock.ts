@@ -240,6 +240,10 @@ export function createMockProvider(options: MockProviderOptions = {}): AiProvide
       if (request.task === "interpret_transactions") {
         return { ok: true, text: JSON.stringify({ items: request.payload.transactions.map(interpretWithFixtures) }) };
       }
+      if (request.task === "interpret_document") {
+        // A mock must never pretend it can interpret arbitrary layouts.
+        return { ok: true, text: JSON.stringify({ institution: null, period: null, accounts: [], unparsedLines: request.payload.primaryLines }) };
+      }
       return { ok: true, text: JSON.stringify({ rows: proposeRowsFromLines(request.payload) }) };
     },
 

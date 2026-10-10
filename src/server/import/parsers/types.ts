@@ -1,4 +1,5 @@
 import type { ParseContext, ParsedStatement } from "@/domain/import/types";
+import type { PdfDocumentAssist } from "./document-ai";
 import type { InstitutionMatch } from "../institution-catalog";
 
 /** Internal result of a format parser, finalized by parseDocument(). */
@@ -15,6 +16,8 @@ export interface ParserOutput {
   ofxInstitution?: InstitutionMatch & { name?: string };
   /** Statement period explicitly stated by the document (OFX DTSTART/DTEND, PDF header). */
   statedPeriod?: { start: string; end: string };
+  /** Issuer name copied from source-verified full-document AI output. */
+  documentInstitution?: string;
 }
 
 /** One transaction proposed by an AI model for an ambiguous PDF line. */
@@ -34,7 +37,11 @@ export interface AiProposedRow {
 export type PdfAiAssist = (lines: { line: number; text: string }[]) => Promise<AiProposedRow[]>;
 
 export interface DocumentParseContext extends ParseContext {
+  /** User-scoped, worker-written evidence for safe deterministic reuse. */
+  pdfLearning?: import("./pdf-learning").PdfLearningStore;
   aiAssist?: PdfAiAssist;
+  /** Full-document fallback for unknown/incomplete PDF layouts. */
+  documentAssist?: PdfDocumentAssist;
   /** Upper bound on transactions per document (default 20,000). */
   maxTransactions?: number;
 }

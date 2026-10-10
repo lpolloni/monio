@@ -51,7 +51,14 @@ export const getProfile = cache(async (): Promise<Profile> => {
     .select("id, display_name, locale, primary_currency, include_business_in_net_worth, ai_cloud_consent")
     .eq("id", userId)
     .single();
-  if (error || !data) throw new Error("Profile not found");
+  if (error) {
+    // Preserve the database error category without exposing query details or user data.
+    if (error.code === "PGRST205" || error.code === "42P01") {
+      throw new Error("Profiles table unavailable. Apply the Supabase migrations and reload the PostgREST schema cache.");
+    }
+    throw new Error(`Profile lookup failed (${error.code || "unknown"})`);
+  }
+  if (!data) throw new Error("Profile not found");
   return {
     id: data.id,
     displayName: data.display_name,

@@ -27,6 +27,7 @@ import { postProcessUser } from "../processing/post-process";
 import type { Json } from "../supabase/database.types";
 import { dbNumeric } from "../supabase/numeric";
 import type { MonioClient } from "../supabase/server";
+import { workerPdfLearningStore } from "./pdf-learning-store";
 import { detectFormat } from "./detect-format";
 import { DOCUMENTS_BUCKET, sha256Hex, UploadRejectedError } from "./intake";
 import { DocumentLimitError, EmptyDocumentError, parseDocument, UnsupportedDocumentError, type PdfAiAssist } from "./parse-document";
@@ -682,6 +683,23 @@ async function processJob(
       filename: doc.original_filename,
       fallbackCurrency: primaryCurrency,
       ...(ai && format === "pdf" ? { aiAssist: pdfAiAssist(ai, () => (aiUsed = true)) } : {}),
+      ...(ai && format === "pdf" && ai.mode !== "mock" && ai.mode !== "disabled" ? {
+        pdfLearning: workerPdfLearningStore(db, userId, doc.sha256),
+        documentAssist: async (lines: import("../ai/document-contract").DocumentLine[]) => {
+          aiUsed = true;
+          console.info(`[import] job ${job.id}: document AI started`);
+          const result = await ai.interpretDocument(lines, {
+            onProgress: async (completed, total) => {
+              const progress = STAGE_PROGRESS.identifying + Math.floor(9 * completed / total);
+              const { error } = await db.from("import_jobs").update({ progress }).eq("id", job.id).eq("user_id", userId);
+              if (error) throw error;
+            },
+          });
+          console.info(`[import] job ${job.id}: document AI ${result.ok ? "completed" : "failed"}`);
+          if (!result.ok) throw new Error("Document AI unavailable");
+          return { batches: result.data, skippedLines: result.meta.skippedLines ?? [] };
+        },
+      } : {}),
     },
   );
   let institution: CatalogInstitution | null = null;
@@ -690,6 +708,26 @@ async function processJob(
     const { data, error } = await db.from("institutions").select("id, slug, name, country").is("owner_id", null).eq("slug", hintSlug).maybeSingle();
     if (error) throw error;
     institution = data;
+  }
+  // A source-verified issuer outside our catalog becomes a private institution,
+  // with a stable key across monthly imports. RLS still scopes every operation.
+  if (!institution && !hintSlug && statement.profile === "pdf-with-document-ai" && statement.institution?.name) {
+    const name = statement.institution.name.slice(0, 120);
+    const slug = `import-${hashIdentifier(fold(name).replace(/\s+/g, " ")).slice(0, 40)}`;
+    const lookup = () => db.from("institutions").select("id, slug, name, country").eq("owner_id", userId).eq("slug", slug).maybeSingle();
+    const existing = await lookup();
+    if (existing.error) throw existing.error;
+    institution = existing.data;
+    if (!institution) {
+      const created = await db.from("institutions").insert({ owner_id: userId, slug, name, kind: "bank" }).select("id, slug, name, country").single();
+      if (created.error?.code === "23505") {
+        const concurrent = await lookup();
+        if (concurrent.error) throw concurrent.error;
+        institution = concurrent.data;
+        if (!institution) throw created.error;
+      } else if (created.error) throw created.error;
+      else institution = created.data;
+    }
   }
   const business = isBusinessVariant(institution?.slug ?? hintSlug, statement.profile);
 

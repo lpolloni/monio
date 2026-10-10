@@ -1,6 +1,35 @@
 # Test results
 
+XP digital-account PDF correction (2026-10-10): ESLint, typecheck and all 695 unit tests / 40 files passed; build and browser E2E were not rerun. verified a real locally supplied export with four reverse-ordered movements, an explicit `De: … Até: …` period and a final available balance. The generic parser previously inferred debit conventions from the last value (running balance), rejected unsigned credits and missed the colon-delimited period/closing label. Amount-column sign conventions, checking/digital account headers, source account identity, time prefixes and available-final-balance labels are now handled. Fully verified amount/balance tables use `pdf-column-statement`, avoiding unnecessary document AI while ambiguous/unknown layouts retain AI fallback. Fictional regression tests cover the layout and ensure a negative running balance cannot establish movement direction.
+
+Targeted DEV repair: matched the local PDF SHA-256 and existing account identity, verified all three existing movements against source date/amount/currency, aligned only their dedup fingerprints, then ran a user-scoped reprocessing worker. Preserved original IDs/descriptions/raw data and financial values; inserted only the missing movement, skipped three duplicates, created no accounts. Verified four persisted transactions, period 2026-07-12 through 2026-10-10, one closing balance 3.79 BRL dated 2026-10-10, document `processed` and no open document review items. Resolved the obsolete incomplete-document question after successful verification. Personal sources and the temporary repair worker were not committed.
+
+Santander completion verification (2026-10-10): observed the authenticated live import from `identifying` through `categorizing` to `needs_review` / 100%, finished at 15:31:41 UTC after ~4m25s. Persisted stats: Santander Brasil, one account, three organized transactions, zero duplicates, 28 warnings and one open review item. OCR completed in ~4.5s; document AI consumed its four-minute budget. Added section-level AI logs and awaited progress callbacks updating the job from 25% toward 34% between sections, so multi-section work is visible. Typecheck, ESLint and all 693 tests / 40 files passed, including callback ordering. No manual repair/re-import of this successful job was performed.
+
 _Run on 2026-10-10 in the cloud development sandbox. These results describe the **DEV** environment only._
+
+Follow-up on 2026-10-10 in the local workspace: full-document PDF AI fallback passed ESLint
+on changed server files, `npm run typecheck`, and 688 unit tests across 39 files. A real LAN
+oMLX test through `parseDocument` interpreted a fictional unknown-bank PDF in ~21 seconds
+with source-verified metadata/movement/balances and zero warnings. New database integration
+regressions cover monthly account identity and private unknown issuers; they have not been
+executed here because the suite requires localhost and the available Supabase is on the LAN.
+Build and browser E2E results below are historical and were not rerun for this follow-up.
+
+Santander follow-up (local workspace, 2026-10-10): ESLint, typecheck, 690 unit tests / 39 files,
+and production build passed. Added fictional regressions for calendar-month dates, inherited date
+pointers, reference-column dashes, account-column identity, explicit balance references and OCR
+preservation of native money. Inspected a personal five-page PDF locally; replayed actual LAN oMLX
+section proposals through the PDF entry point and recovered three reconciled checking movements.
+The model also produced rejected references; this was not a zero-warning run. No persisted import,
+database integration or browser E2E validation was performed. Personal files were not committed.
+
+Stalled-import follow-up (2026-10-10): confirmed ENOENT in Next dev logs and the matching
+Santander job stuck at `identifying` / 25%. Corrected the external OCR language path and
+verified worker initialization via HTTP 200 in Next dev; temporary probe removed. ESLint,
+typecheck and 693 unit tests / 40 files passed, including worker error/timeout regressions.
+Only the affected stuck job/document status was marked failed to permit retry; transactions
+were unchanged. A complete authenticated re-import remains to be verified by the user.
 
 ## Environment
 | Component | Version / setup |
@@ -91,3 +120,5 @@ Each one was fixed, and the suite was then re-run green:
 - **Firefox, WebKit/Safari, real iOS/Android devices, PWA install flow on a device:** not available here.
 - **Load, performance and penetration testing by a third party:** out of scope.
 - **Staging or production:** intentionally never touched.
+
+PDF learning verification (2026-10-10): 701 unit tests / 41 files passed; typecheck, ESLint and production build passed. Includes actual PDF parsing through two independent confirmations, same-original retry, fresh-value fast path and divergence fallback, plus section coverage, conflicts, metadata and unexplained monetary-content checks. Migration 008 applied to LAN DEV; transaction-isolated fictional SQL checks passed for RLS ownership and browser/anonymous privilege denial (fixtures rolled back). Added a localhost integration regression for the persistence adapter and permissions, not run against LAN.

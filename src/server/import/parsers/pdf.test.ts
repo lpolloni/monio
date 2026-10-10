@@ -185,6 +185,92 @@ describe("PDF deterministic line parser", () => {
   });
 });
 
+describe("Nubank grouped account PDFs", () => {
+  const header = (month = "SETEMBRO", end = "30", holder = "CPF •••.123.456-••") => [
+    "Cliente Fictício", `${holder} Agência 0001 Conta`, "1234567-8",
+    `01 DE ${month} DE 2026 a ${end} DE ${month} DE 2026 VALORES EM R$`,
+  ];
+  const footer = [
+    "Tem alguma dúvida? Mande uma mensagem para nosso time.",
+    "disponíveis em nubank.com.br/contatos#ouvidoria .",
+    "Extrato gerado dia 10 de outubro de 2026",
+  ];
+  const issuer = [
+    "Nu Financeira S.A. - Sociedade de Credito, Financiamento e Nu Pagamentos S.A. - Instituição de",
+    "Investimento Pagamento",
+    "CNPJ: 00.000.000/0001-00 CNPJ: 11.111.111/0001-11",
+  ];
+
+  it("extracts grouped, wrapped movements across pages without treating totals as transactions", async () => {
+    const aiAssist = vi.fn<PdfAiAssist>(async () => []);
+    const st = await parsePdf(pdf([
+      ...header(), "Saldo inicial 1.000,00", "Rendimento líquido +0,00",
+      "Saldo final do período", "Total de entradas +500,00", "R$ 1.300,00",
+      "Total de saídas -200,00", "Saldo final do período 1.300,00", "Movimentações",
+      "01 SET 2026 Total de entradas + 500,00",
+      "Transferência recebida pelo Pix CLIENTE FICTICIO - BANCO INTER 500,00",
+      "Agência: 1 Conta: 99999-9",
+      "02 SET 2026 Total de saídas - 150,00",
+      "Transferência enviada pelo Pix LOJA FICTICIA - ITAÚ UNIBANCO S. 100,00",
+      "A. Agência: 57 Conta: 12345-6",
+      ...footer,
+    ], [
+      ...header(), "Pagamento de boleto efetuado SERVICO FICTICIO 50,00",
+      "03 SET 2026 Total de saídas - 50,00",
+      "Transferência enviada pelo Pix PESSOA FICTICIA 20,00", ...footer,
+    ], [
+      ...header(), "Agência: 0001 Conta: 88888-8",
+      "Pagamento de boleto efetuado EMPRESA FICTICIA 30,00", ...issuer, ...footer,
+    ]), { aiAssist });
+    expect(st.institution).toMatchObject({ slug: "nubank", confidence: 0.9 });
+    expect(st.profile).toBe("nubank-account-pdf");
+    expect(st.period).toEqual({ start: "2026-09-01", end: "2026-09-30" });
+    const account = st.accounts[0]!;
+    expect(account).toMatchObject({
+      identifier: "nubank:0001:12345678", identifierMask: "5678", type: "checking", currency: "BRL",
+      openingBalance: { amount: "1000", asOf: "2026-09-01" },
+      closingBalance: { amount: "1300", asOf: "2026-09-30" },
+    });
+    expect(account.transactions.map(t => [t.bookedOn, t.amount])).toEqual([
+      ["2026-09-01", "500"], ["2026-09-02", "-100"], ["2026-09-02", "-50"],
+      ["2026-09-03", "-20"], ["2026-09-03", "-30"],
+    ]);
+    expect(account.transactions[1]!.description).toContain("ITAÚ UNIBANCO S. A. Agência: 57 Conta: 12345-6");
+    expect(account.transactions[3]!.description).toContain("Conta: 88888-8");
+    expect(account.transactions[2]!.raw).toMatchObject({ page: "2" });
+    expect(st.warnings).toEqual([]);
+    expect(aiAssist).not.toHaveBeenCalled();
+  });
+
+  it("uses the same strong account identity in different months", async () => {
+    const statements = await Promise.all(["SETEMBRO", "OUTUBRO"].map(month => parsePdf(pdf([
+      ...header(month, "09"), "Saldo inicial 100,00", "Saldo final do período 90,00", "Movimentações",
+      `02 ${month === "SETEMBRO" ? "SET" : "OUT"} 2026 Total de saídas - 10,00`,
+      "Pagamento de boleto efetuado EMPRESA FICTICIA 10,00", ...issuer,
+    ]))));
+    expect(statements.map(st => st.institution?.slug)).toEqual(["nubank", "nubank"]);
+    expect(statements[0]!.accounts[0]!.identifier).toBe(statements[1]!.accounts[0]!.identifier);
+    expect(statements.map(st => st.accounts[0]!.transactions[0]!.bookedOn)).toEqual(["2026-09-02", "2026-10-02"]);
+    expect(statements.every(st => st.warnings.length === 0)).toBe(true);
+  });
+
+  it("uses the holder CNPJ, rather than the issuer CNPJ, to identify a business account", async () => {
+    const st = await parsePdf(pdf([
+      ...header("SETEMBRO", "30", "CNPJ 22.222.222/0001-22"),
+      "01 SET 2026 Total de entradas + 10,00", "Transferência recebida pelo Pix EMPRESA FICTICIA 10,00", ...issuer,
+    ]));
+    expect(st.institution?.slug).toBe("nubank-pj");
+  });
+
+  it("warns when individual movements do not reconcile with the daily total", async () => {
+    const st = await parsePdf(pdf([
+      ...header(), "01 SET 2026 Total de saídas - 50,00", "Pagamento de boleto efetuado EMPRESA FICTICIA 10,00", ...issuer,
+    ]));
+    expect(st.accounts[0]!.transactions.map(t => t.amount)).toEqual(["-10"]);
+    expect(st.warnings).toEqual([expect.objectContaining({ code: "balance_mismatch", row: 5 })]);
+  });
+});
+
 describe("PDF AI assist", () => {
   const statement = () =>
     pdf([
@@ -291,4 +377,44 @@ describe("PDF amount helpers", () => {
     expect(amountAppearsIn("1234.56", "11234,567")).toBe(false);
     expect(amountAppearsIn("4500", "LOJA -45,00")).toBe(false);
   });
+});
+
+it("keeps native PDF money authoritative when visual text recovery is enabled", async () => {
+  const bytes = buildPdf([["Banco Ficticio", "Conta 12345-6 BRL", "02/09/2026 PAGAMENTO LOJA -10,50"]], { fontSize: 12, lineHeight: 24 });
+  const native = await extractPdfLines(bytes);
+  const recovered = await extractPdfLines(bytes, true);
+  expect(recovered.map(l => l.text)).toEqual(native.map(l => l.text));
+});
+
+it("reads a reverse-ordered digital account table with values, running balances and colon-delimited period", async () => {
+  const documentAssist = vi.fn();
+  const bytes = buildPdf([[
+    "Conta Digital Extrato Banco XP S.A",
+    "Pessoa Ficticia | Agencia: 0001 | Conta: 1234567",
+    "Documento: 000.000.000-00 De: 12/07/2026 Ate: 10/10/2026",
+    "Saldo disponivel no final do periodo filtrado: R$ 3,79",
+    [{ x: 40, text: "Data" }, { x: 150, text: "Descricao" }, { x: 400, text: "Valor" }, { x: 500, text: "Saldo" }],
+    [{ x: 40, text: "01/09/26 às 07:00:27" }, { x: 150, text: "Transferencia enviada" }, { x: 400, text: "-R$ 1.840,00" }, { x: 500, text: "R$ 3,79" }],
+    [{ x: 40, text: "31/08/26 às 17:36:33" }, { x: 150, text: "Pix recebido de 12.345.678 Pessoa Ficticia" }, { x: 400, text: "R$ 1.800,00" }, { x: 500, text: "R$ 1.843,79" }],
+    [{ x: 40, text: "25/08/26 às 17:50:47" }, { x: 150, text: "PAGAMENTO DE FATURA" }, { x: 400, text: "-R$ 556,21" }, { x: 500, text: "R$ 43,79" }],
+    [{ x: 40, text: "25/08/26 às 17:50:17" }, { x: 150, text: "Pix recebido" }, { x: 400, text: "R$ 600,00" }, { x: 500, text: "R$ 600,00" }],
+  ]], { fontSize: 7 });
+  const st = await parsePdf(bytes, { documentAssist });
+  expect(st.profile).toBe("pdf-column-statement");
+  expect(st.period).toEqual({ start: "2026-07-12", end: "2026-10-10" });
+  expect(st.accounts[0]).toMatchObject({ type: "checking", identifier: "bank:xp:1234567", closingBalance: { amount: "3.79", asOf: "2026-10-10" } });
+  expect(st.accounts[0]!.transactions.map(t => t.amount)).toEqual(["600", "-556.21", "1800", "-1840"]);
+  expect(st.accounts[0]!.transactions.every(t => !t.description.includes("às"))).toBe(true);
+  expect(st.warnings).toEqual([]);
+  expect(documentAssist).not.toHaveBeenCalled();
+});
+
+it("does not infer credit from a negative running balance in a separate column", async () => {
+  const st = await parsePdf(buildPdf([[
+    "Banco Ficticio BRL", "Periodo 01/09/2026 a 30/09/2026",
+    [{ x: 40, text: "Data" }, { x: 140, text: "Descricao" }, { x: 350, text: "Valor" }, { x: 480, text: "Saldo" }],
+    [{ x: 40, text: "02/09/2026" }, { x: 140, text: "Movimento sem direcao" }, { x: 350, text: "10,00" }, { x: 480, text: "-100,00" }],
+  ]]));
+  expect(st.accounts[0]!.transactions).toEqual([]);
+  expect(st.warnings.some(w => w.code === "row_unreadable")).toBe(true);
 });

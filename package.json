@@ -24,11 +24,13 @@
     "validate": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.11",
     "@noble/hashes": "^2.4.0",
     "@scure/base": "^2.4.0",
     "@scure/bip32": "^2.4.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.3",
+    "@tesseract.js-data/por": "^1.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "decimal.js": "^10.6.0",
@@ -45,6 +47,7 @@
     "server-only": "^0.0.1",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
+    "tesseract.js": "^7.0.0",
     "unpdf": "^1.8.1",
     "use-intl": "^4.14.9",
     "zod": "^4.6.5"

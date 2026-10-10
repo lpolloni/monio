@@ -46,7 +46,7 @@ export function createAnthropicProvider(options: AnthropicOptions): AiProvider {
             messages: [{ role: "user", content: request.user }],
           }),
         },
-        options,
+        request.task === "interpret_document" && request.timeoutMs ? { ...options, timeoutMs: Math.min(options.timeoutMs, request.timeoutMs) } : options,
       );
       if (!outcome.ok) return { ok: false, error: outcome.error };
       const parsed = MessagesResponseSchema.safeParse(outcome.body);

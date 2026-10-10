@@ -8,6 +8,8 @@
  * text. It never produces amounts or balances that Monio would trust as-is.
  */
 import { z } from "zod";
+import { DOCUMENT_SYSTEM_PROMPT, parseDocumentProposal, type DocumentBatch, type DocumentLine } from "./document-contract";
+import { DATA_OPEN, DATA_CLOSE } from "./prompts";
 import { checkAiConfig, providerIdForConfig, type AiConfig, type AiMode } from "./config";
 import { validateInterpretationBatch, type BatchEntry } from "./interpretation-validation";
 import {
@@ -88,6 +90,8 @@ export interface AiService {
     lines: readonly StatementLineInput[],
     ctx?: StatementContext,
   ): Promise<AiResult<StatementRowProposal[]>>;
+  /** Interpret all PDF content in bounded batches; proposals still require source validation. */
+  interpretDocument(lines: readonly DocumentLine[], options?: { onProgress?: (completed: number, total: number) => Promise<void> | void }): Promise<AiResult<DocumentBatch[]>>;
   health(): Promise<AiHealth>;
 }
 
@@ -123,6 +127,7 @@ export function createAiService(config: AiConfig, deps: AiServiceDeps = {}): AiS
 
   let gate: AiError | null = null;
   let provider: AiProvider | null = null;
+  let documentProvider: AiProvider | null = null;
   if (mode === "disabled") {
     gate = aiError("disabled", config.disabledReason ?? "AI features are disabled.");
   } else {
@@ -131,6 +136,7 @@ export function createAiService(config: AiConfig, deps: AiServiceDeps = {}): AiS
       gate = aiError("misconfigured", checked.reason);
     } else {
       provider = buildProvider(checked.config, { fetchImpl, now, timeoutMs: checked.config.timeoutMs });
+      documentProvider = buildProvider(checked.config, { fetchImpl, now, timeoutMs: checked.config.documentTimeoutMs ?? 120_000 });
     }
   }
   const model = provider?.model ?? config.model;
@@ -161,7 +167,7 @@ export function createAiService(config: AiConfig, deps: AiServiceDeps = {}): AiS
   async function call(request: ProviderRequest): Promise<{ ok: true; value: unknown } | { ok: false; error: AiError }> {
     let response: ProviderResponse;
     try {
-      response = await provider!.complete(request);
+      response = await (request.task === "interpret_document" ? documentProvider! : provider!).complete(request);
     } catch {
       return { ok: false, error: aiError("network_error", "The AI provider failed unexpectedly.", true) };
     }
@@ -328,6 +334,63 @@ export function createAiService(config: AiConfig, deps: AiServiceDeps = {}): AiS
         return { ok: false, error: errors[0]!, meta: meta(started, extra) };
       }
       data.sort((a, b) => a.line - b.line);
+      return { ok: true, data, meta: meta(started, extra) };
+    },
+
+    async interpretDocument(lines, options) {
+      const started = now();
+      const blocked = precheck();
+      if (blocked) return { ok: false, error: blocked, meta: meta(started) };
+      const input = z.array(z.object({
+        line: z.number().int().positive(), page: z.number().int().positive(), text: z.string().max(2000),
+        items: z.array(z.object({ x: z.number().finite(), width: z.number().finite(), text: z.string().max(2000) })).max(500),
+      })).max(50_000).safeParse(lines);
+      if (!input.success || new Set(lines.map(l => l.line)).size !== lines.length) {
+        return { ok: false, error: aiError("invalid_input", "Invalid PDF document lines."), meta: meta(started) };
+      }
+      const clean = input.data.map(l => ({ ...l, text: sanitizeUntrustedText(l.text, 2000), items: l.items.map(i => ({ ...i, text: sanitizeUntrustedText(i.text, 2000) })) }));
+      // No first-N truncation: every line belongs to one primary batch. Context
+      // overlaps preserve dates/descriptions split across a batch/page boundary.
+      const groups: DocumentLine[][] = [];
+      let group: DocumentLine[] = [];
+      let chars = 0;
+      for (const l of clean) {
+        const size = JSON.stringify(l).length;
+        if (group.length && (group.length >= 40 || chars + size > 16_000)) { groups.push(group); group = []; chars = 0; }
+        group.push(l); chars += size;
+      }
+      if (group.length) groups.push(group);
+      const data: DocumentBatch[] = [];
+      const skippedLines: number[] = [];
+      let firstError: AiError | undefined;
+      let offset = 0;
+      let requests = 0;
+      for (const [batchIndex, primary] of groups.entries()) {
+        if (batchIndex >= 64 || now() - started >= 240_000) {
+          skippedLines.push(...primary.map(l => l.line));
+          continue;
+        }
+        const context = [...clean.slice(0, 12), ...clean.slice(-8), ...clean.slice(Math.max(0, offset - 12), offset + primary.length + 8)];
+        const payload = { lines: [...new Map(context.map(l => [l.line, l])).values()].sort((a, b) => a.line - b.line), primaryLines: primary.map(l => l.line) };
+        offset += primary.length;
+        requests++;
+        console.info(`[import] Document AI section ${batchIndex + 1}/${groups.length} started`);
+        const outcome = await call({ task: "interpret_document", timeoutMs: Math.max(1, 240_000 - (now() - started)), system: DOCUMENT_SYSTEM_PROMPT,
+          user: `Interpret this document section.\n${DATA_OPEN}\n${JSON.stringify(payload)}\n${DATA_CLOSE}`, payload });
+        console.info(`[import] Document AI section ${batchIndex + 1}/${groups.length} ${outcome.ok ? "answered" : "failed"}`);
+        await options?.onProgress?.(batchIndex + 1, groups.length);
+        const proposal = outcome.ok ? parseDocumentProposal(outcome.value) : null;
+        if (!outcome.ok || !proposal?.success) {
+          firstError ??= outcome.ok ? aiError("schema_invalid", "The document interpretation has an invalid structure.") : outcome.error;
+          skippedLines.push(...payload.primaryLines);
+          if (!outcome.ok && (outcome.error.retryable || outcome.error.status === 401 || outcome.error.status === 403)) {
+            skippedLines.push(...groups.slice(batchIndex + 1).flatMap(g => g.map(l => l.line)));
+            break;
+          }
+        } else data.push({ proposal: proposal.data, primaryLines: payload.primaryLines, lines: payload.lines });
+      }
+      const extra = { batches: requests, ...(skippedLines.length ? { skippedLines } : {}) };
+      if (firstError && !data.length) return { ok: false, error: firstError, meta: meta(started, extra) };
       return { ok: true, data, meta: meta(started, extra) };
     },
 

@@ -73,7 +73,7 @@ export function ImportView({ maxMb }: { maxMb: number }) {
 
   const poll = useCallback(
     async (key: string, jobId: string) => {
-      for (let i = 0; i < 300; i++) {
+      for (let i = 0; i < 900; i++) {
         await new Promise((r) => setTimeout(r, 700));
         const res = await fetch(`/api/import/${jobId}`, { cache: "no-store" });
         if (!res.ok) continue;
@@ -90,8 +90,9 @@ export function ImportView({ maxMb }: { maxMb: number }) {
         }
         patch(key, { state: "processing", stage: job.stage, progress: job.progress });
       }
+      patch(key, { state: "failed", error: t("errorWaitExpired") });
     },
-    [errorText, patch],
+    [errorText, patch, t],
   );
 
   const upload = useCallback(

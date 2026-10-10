@@ -69,10 +69,18 @@ Supabase (Postgres 17 + Auth + Storage), RLS on every table
    with an RLS-scoped client built from the user's access token.
 2. Parse (`parseDocument`): CSV/XLSX profiles (Nubank, Nubank PJ, N26, Revolut, BBVA, MPS,
    XP, Santander Brasil) + generic multilingual parser, OFX 1.x/2.x, PDF text with a
-   deterministic line parser. Ambiguous PDF lines may be sent to the AI, whose proposals are
-   accepted only if the amount, date and description literally appear in that line.
+   deterministic line parser plus known grouped layouts. Generic/unknown or incomplete text
+   PDFs use full-document AI interpretation: numbered lines, pages and horizontal positions,
+   with shared administrative context and overlapping bounded sections. Each proposed field
+   cites its source; dates, amounts, descriptions, direction, currency, account and issuer are
+   checked before merging. Totals are not transactions; deterministic movements are retained
+   on conflicts. Skipped/rejected sections and balance discrepancies require review. Unknown/incomplete mixed PDFs up to 20 pages receive local OCR to fill empty text regions;
+   native glyphs remain authoritative. Language data is packaged locally and images are not uploaded
+   for OCR. Calendar-month headers and explicitly labeled balances ground inherited dates. Fully
+   scanned PDFs remain unsupported by the automatic flow; oversized visual recovery is skipped.
 3. Identify institution and accounts (hash of the full identifier + last 4 only; never the
-   full number), normalize, fingerprint (`computeFingerprints`, FITID when present), insert
+   full number); source-verified issuers outside the catalog become private institutions with
+   stable per-user keys. Normalize, fingerprint (`computeFingerprints`, FITID when present), insert
    with `ON CONFLICT (account_id, fingerprint) DO NOTHING` ⇒ re-imports are idempotent.
 4. Categorize: user rules → system rules → AI for leftovers (applied only above a confidence
    threshold; high-confidence answers become user rules so the pattern is not asked again).
@@ -88,13 +96,18 @@ Supabase (Postgres 17 + Auth + Storage), RLS on every table
 ## AI
 
 `src/server/ai` exposes `createAiService(config)` with `interpretTransactions` and
-`proposeStatementRows`. Modes: `mock` (deterministic fixtures, default in DEV), `omlx`
+`proposeStatementRows` and `interpretDocument`. Modes: `mock` (deterministic fixtures, default in DEV), `omlx`
 (OpenAI-compatible local server, private-network hosts only), `cloud` (OpenAI / OpenRouter /
 generic / Anthropic adapter). Every response is validated with strict zod schemas; the model
 never sees instructions from documents as instructions (data is delimited and sanitized),
 cannot add amounts, and failures are typed results (the app keeps working on rules).
 Cloud use requires `AI_ALLOW_CLOUD_DOCUMENTS=true` **and** per-user consent; there is no
 automatic fallback. Confidence values are simulated in mock mode and labelled as such.
+Full-document interpretation uses `AI_DOCUMENT_TIMEOUT_MS` (default 120 seconds per section),
+a four-minute total budget and at most 64 sections. Unprocessed lines are reported, never
+silently dropped. oMLX document requests use JSON schema and disable long reasoning; monetary
+strings copied in source formatting are parsed to canonical decimal strings and checked
+against the source. The mock reports unresolved lines rather than simulating document comprehension.
 
 ## Crypto (watch-only)
 
@@ -137,3 +150,7 @@ independent Supabase — possibly self-hosted). All configuration is external
 (`.env.example`); `NEXT_PUBLIC_*` values are embedded at build time, so build per
 environment and run migrations explicitly (`supabase db push`/`migration up`) — changing
 env vars never migrates a database.
+
+### Persistent PDF learning
+
+Real document AI is the interpretation path for a previously unconfirmed PDF layout. `pdf-learning.ts` certifies a bounded existing reader only after two distinct source files agree with complete validated AI interpretations. The signature binds reader version, issuer and column geometry. `pdf_reader_evidence` is private per user with authenticated read-only RLS; only the worker writes confirmations. Inline processing retains session RLS for financial writes and uses a scoped privileged learning writer only after validating job ownership, document ownership and original SHA-256. Evidence contains hashes, never PDF text, account identifiers, monetary values or generated code. Reuse re-reads the new file and requires complete account metadata, period bounds, opening/closing reconciliation and no unexplained monetary lines. Drift or failed agreement returns to AI; partial responses cannot train. Missing learning infrastructure also falls back to AI. Unsupported recipe families retain full-document AI rather than unsafe automatic promotion.

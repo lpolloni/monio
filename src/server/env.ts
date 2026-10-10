@@ -16,6 +16,7 @@ const ServerEnvSchema = z.object({
   AI_API_KEY: z.string().optional(),
   AI_MODEL: z.string().optional(),
   AI_TIMEOUT_MS: z.string().optional(),
+  AI_DOCUMENT_TIMEOUT_MS: z.string().optional(),
   AI_ALLOW_CLOUD_DOCUMENTS: booleanString,
   AI_CLOUD_FLAVOR: z.string().optional(),
   BLOCKCHAIN_PROVIDER: z.enum(["mock", "live"]).default("mock"),

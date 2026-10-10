@@ -30,6 +30,8 @@ export interface AiConfig {
   apiKey?: string;
   model?: string;
   timeoutMs: number;
+  /** Full document interpretation is slower than categorization. Default: 120 seconds per section. */
+  documentTimeoutMs?: number;
   /**
    * Explicit authorization to send transaction descriptions / document text to a
    * `cloud` provider. Without it every data-bearing cloud call fails with
@@ -69,6 +71,7 @@ const AiEnvSchema = z.object({
       .pipe(z.number().int().min(MIN_TIMEOUT_MS).max(MAX_TIMEOUT_MS))
       .optional(),
   ),
+  AI_DOCUMENT_TIMEOUT_MS: z.preprocess(trimmed, z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(MIN_TIMEOUT_MS).max(MAX_TIMEOUT_MS)).optional()),
   AI_ALLOW_CLOUD_DOCUMENTS: z.preprocess(
     lowerTrim,
     z
@@ -92,6 +95,7 @@ export function aiConfigFromEnv(env: Record<string, string | undefined>): AiConf
     AI_API_KEY: env.AI_API_KEY,
     AI_MODEL: env.AI_MODEL,
     AI_TIMEOUT_MS: env.AI_TIMEOUT_MS,
+    AI_DOCUMENT_TIMEOUT_MS: env.AI_DOCUMENT_TIMEOUT_MS,
     AI_ALLOW_CLOUD_DOCUMENTS: env.AI_ALLOW_CLOUD_DOCUMENTS,
     AI_CLOUD_FLAVOR: env.AI_CLOUD_FLAVOR,
     AI_MOCK_BEHAVIOR: env.AI_MOCK_BEHAVIOR,
@@ -114,6 +118,7 @@ export function aiConfigFromEnv(env: Record<string, string | undefined>): AiConf
     mode: e.AI_PROVIDER,
     timeoutMs: e.AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS,
     allowCloudDocuments: e.AI_ALLOW_CLOUD_DOCUMENTS,
+    ...(e.AI_DOCUMENT_TIMEOUT_MS !== undefined && { documentTimeoutMs: e.AI_DOCUMENT_TIMEOUT_MS }),
     ...(e.AI_BASE_URL !== undefined && { baseUrl: e.AI_BASE_URL }),
     ...(e.AI_API_KEY !== undefined && { apiKey: e.AI_API_KEY }),
     ...(e.AI_MODEL !== undefined && { model: e.AI_MODEL }),
@@ -145,6 +150,9 @@ export function checkAiConfig(input: AiConfig): AiConfigCheck {
   const config: AiConfig = { ...input };
   if (!Number.isInteger(config.timeoutMs) || config.timeoutMs < MIN_TIMEOUT_MS || config.timeoutMs > MAX_TIMEOUT_MS) {
     return { ok: false, reason: `AI_TIMEOUT_MS must be an integer between ${MIN_TIMEOUT_MS} and ${MAX_TIMEOUT_MS}.` };
+  }
+  if (config.documentTimeoutMs !== undefined && (!Number.isInteger(config.documentTimeoutMs) || config.documentTimeoutMs < MIN_TIMEOUT_MS || config.documentTimeoutMs > MAX_TIMEOUT_MS)) {
+    return { ok: false, reason: `AI_DOCUMENT_TIMEOUT_MS must be an integer between ${MIN_TIMEOUT_MS} and ${MAX_TIMEOUT_MS}.` };
   }
   if (typeof config.allowCloudDocuments !== "boolean") {
     return { ok: false, reason: "allowCloudDocuments must be a boolean." };

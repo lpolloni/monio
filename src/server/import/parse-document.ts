@@ -215,6 +215,10 @@ function hint(match: InstitutionMatch, confidence = match.confidence, name?: str
  * yields to a different institution named in the document text.
  */
 function resolveInstitution(output: ParserOutput, statement: ParsedStatement, filename?: string): InstitutionHint | undefined {
+  if (output.documentInstitution && !output.profileInstitution) {
+    const match = findInstitutionByText(output.documentInstitution);
+    return match ? hint(match) : { name: output.documentInstitution, confidence: 0.8, evidence: "Issuer copied from a source-verified document header/footer" };
+  }
   const textMatch = output.institutionText ? findInstitutionByText(output.institutionText) : undefined;
   if (output.profileInstitution) {
     const { slug, weak, evidence } = output.profileInstitution;

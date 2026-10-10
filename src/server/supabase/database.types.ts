@@ -23,6 +23,13 @@ export type Database = {
           }
         },"public": {
           Tables: {
+            "pdf_reader_evidence": {
+              Row: { user_id: string; layout_hash: string; document_hash: string; created_at: string }
+              ComputedFields: never
+              Insert: { user_id: string; layout_hash: string; document_hash: string; created_at?: string }
+              Update: { user_id?: string; layout_hash?: string; document_hash?: string; created_at?: string }
+              Relationships: []
+            }
             "account_balances": {
                   Row: {
                     "account_id": string,"as_of": string,"balance": number,"created_at": string,"currency": string,"document_id": string | null,"id": string,"source": string,"user_id": string

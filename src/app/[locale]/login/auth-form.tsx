@@ -28,6 +28,7 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const next = (() => {
     const raw = params.get("next");
@@ -42,6 +43,7 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
     const name = nameRef.current?.value ?? "";
     setPending(true);
     setError(null);
+    setNotice(null);
     const supabase = createBrowserSupabase();
     const result =
       mode === "signin"
@@ -53,7 +55,18 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
           });
     if (result.error) {
       setPending(false);
-      setError(result.error.status === 400 && mode === "signin" ? t("invalidCredentials") : t("genericError"));
+      setError(
+        result.error.message === "Error sending confirmation email"
+          ? t("confirmationEmailError")
+          : result.error.code === "invalid_credentials"
+            ? t("invalidCredentials")
+            : t(mode === "signup" ? "signupError" : "genericError"),
+      );
+      return;
+    }
+    if (mode === "signup" && !result.data.session) {
+      setPending(false);
+      setNotice(t("checkEmail"));
       return;
     }
     router.replace(next);
@@ -71,6 +84,7 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
           onChange={(v) => {
             setMode(v);
             setError(null);
+            setNotice(null);
           }}
           options={[
             { value: "signin", label: t("signIn") },
@@ -126,6 +140,8 @@ export function AuthForm({ demo }: { demo: { email: string; password: string } |
           </p>
         ) : null}
       </div>
+
+      {notice ? <p role="status" className="text-sm text-fg-muted">{notice}</p> : null}
 
       <AnimatePresence>
         {error ? (

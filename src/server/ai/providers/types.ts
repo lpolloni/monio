@@ -1,3 +1,4 @@
+import type { DocumentPayload } from "../document-contract";
 import type { StatementPayload } from "../prompts";
 import type { AiError, AiProviderId } from "../result";
 import type { WireTransaction } from "../schemas";
@@ -9,6 +10,7 @@ import type { WireTransaction } from "../schemas";
  * the service validates the same way.
  */
 export type ProviderRequest =
+  | { task: "interpret_document"; system: string; user: string; payload: DocumentPayload; timeoutMs?: number }
   | {
       task: "interpret_transactions";
       system: string;
