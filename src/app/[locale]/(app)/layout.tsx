@@ -12,7 +12,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     <AddSheetProvider>
       <div className="aurora" aria-hidden />
       <div className="grain" aria-hidden />
-      <div className="glass fixed inset-x-0 top-0 z-30 h-[env(safe-area-inset-top)]" aria-hidden />
+      {/* Status-bar veil: blurs content scrolling under the clock, fading out so the page background still reaches the top. */}
+      <div
+        className="pointer-events-none fixed inset-x-0 top-0 z-30 h-[calc(env(safe-area-inset-top)*1.4)] bg-bg/40 backdrop-blur-md [mask-image:linear-gradient(to_bottom,black_55%,transparent)]"
+        aria-hidden
+      />
       <div className="relative z-10 flex min-h-dvh flex-col">
         <header className="px-4 pt-[max(env(safe-area-inset-top),0.75rem)] sm:px-6 lg:px-10">
           <div className="mx-auto flex h-14 max-w-[1280px] items-center justify-between gap-4">
