@@ -14,6 +14,7 @@ import { dbNumeric } from "../supabase/numeric";
 import type { MonioClient } from "../supabase/server";
 import { loadAccounts, loadRates, type AccountRecord } from "../data/finance";
 import { loadCategories, loadTransactionsInRange, toFlow, type TransactionRow } from "../data/transactions";
+import { categorizeBatch, loadRules } from "./categorize";
 
 export interface PostProcessOptions {
   today: string;
@@ -31,6 +32,8 @@ export interface PostProcessStats {
   recurringSeries: number;
   subscriptionQuestions: number;
   uncategorizedQuestions: number;
+  /** Transactions imported earlier that rules or recognition now categorize. */
+  recategorized: number;
   staleSources: number;
   insights: number;
 }
@@ -94,6 +97,7 @@ export async function postProcessUser(db: MonioClient, userId: string, options: 
     recurringSeries: 0,
     subscriptionQuestions: 0,
     uncategorizedQuestions: 0,
+    recategorized: 0,
     staleSources: 0,
     insights: 0,
   };
@@ -352,6 +356,28 @@ export async function postProcessUser(db: MonioClient, userId: string, options: 
     t.categoryId = businessIncomeId;
   }
   await applyUpdates(db, defaults);
+
+  // 4a. Rules the user confirmed, and recognition improved since the import, also
+  // apply to what was imported before them. Deterministic only: no model is asked.
+  const waiting = transactions.filter((t) => !t.categoryId && t.categorySource !== "user" && t.classification === "regular" && !t.duplicateOf && !awaitingTransferDecision.has(t.id));
+  if (waiting.length) {
+    const { results } = await categorizeBatch(
+      waiting.map((t) => ({ key: t.id, description: t.description, amount: t.amount, currency: t.currency })),
+      await loadRules(db, userId),
+      systemCategory,
+      null,
+    );
+    const recognized: Record<string, Json>[] = [];
+    for (const t of waiting) {
+      const r = results.get(t.id);
+      if (!r?.categoryId) continue;
+      recognized.push({ id: t.id, category_id: r.categoryId, category_source: "rule", category_confidence: r.confidence ?? 0.85, ...(r.merchant && !t.merchant ? { merchant: r.merchant.slice(0, 80) } : {}) });
+      t.categoryId = r.categoryId;
+      if (r.merchant && !t.merchant) t.merchant = r.merchant.slice(0, 80);
+    }
+    await applyUpdates(db, recognized);
+    stats.recategorized = recognized.length;
+  }
 
   // 4b. Uncategorized expenses worth asking about (largest first, a handful at a time).
   // Questions that no longer apply (categorized meanwhile) are closed; at most

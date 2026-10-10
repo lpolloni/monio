@@ -35,6 +35,22 @@ export function sortRules(rules: CategorizationRule[]): CategorizationRule[] {
   });
 }
 
+/**
+ * True when `pattern` occurs in `text` as whole words: ITALO does not match
+ * VITALOGY, CAMBIO does not match INTERCAMBIO. Punctuation inside the pattern
+ * ("UBER *TRIP", "APPLE.COM/BILL") is matched as written.
+ */
+function containsWords(text: string, pattern: string): boolean {
+  const wordChar = /[\p{L}\p{N}]/u;
+  for (let at = text.indexOf(pattern); at >= 0; at = text.indexOf(pattern, at + 1)) {
+    const before = text[at - 1], after = text[at + pattern.length];
+    const startsClean = !before || !wordChar.test(before) || !wordChar.test(pattern[0]!);
+    const endsClean = !after || !wordChar.test(after) || !wordChar.test(pattern.at(-1)!);
+    if (startsClean && endsClean) return true;
+  }
+  return false;
+}
+
 export function matchRule(
   description: string,
   amount: string,
@@ -51,7 +67,7 @@ export function matchRule(
         ? text === pattern
         : rule.matchType === "starts_with"
           ? text.startsWith(pattern)
-          : ` ${text} `.includes(pattern.length <= 4 ? ` ${pattern} ` : pattern);
+          : containsWords(text, pattern);
     if (hit) {
       return {
         ruleId: rule.id,
