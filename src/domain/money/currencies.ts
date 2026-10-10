@@ -59,6 +59,44 @@ const BY_CODE = new Map(CATALOG.map((c) => [c.code, c]));
 
 export const CURRENCIES: readonly CurrencyInfo[] = CATALOG;
 
+/**
+ * ISO 4217 codes known to the runtime. Any currency a statement names is one of
+ * these: it is shown, converted and stored like the catalog ones. Codes starting
+ * with X are not national currencies (metals, XXX/XTS test codes) and are left out.
+ */
+const ISO_CODES: ReadonlySet<string> = new Set(Intl.supportedValuesOf("currency").filter((c) => /^[A-Z]{3}$/.test(c) && !c.startsWith("X")));
+const derived = new Map<string, CurrencyInfo>();
+
+/** True for a currency in the catalog or any ISO 4217 currency. */
+export function isIsoCurrency(code: string): boolean {
+  return ISO_CODES.has(code.toUpperCase());
+}
+
+/** Every ISO currency code, in order. */
+export function isoCurrencyCodes(): string[] {
+  return [...ISO_CODES];
+}
+
+/** True for a currency this catalog describes itself (its rows are seeded). */
+export function isCatalogCurrency(code: string): boolean {
+  return BY_CODE.has(code.toUpperCase());
+}
+
+/**
+ * Describes an ISO currency outside the catalog: a fiat currency, its name and
+ * its number of decimals as the ISO standard defines them. Derived once per code.
+ */
+function describeIso(code: string): CurrencyInfo | undefined {
+  if (!isIsoCurrency(code)) return undefined;
+  const cached = derived.get(code);
+  if (cached) return cached;
+  const decimals = new Intl.NumberFormat("en", { style: "currency", currency: code }).resolvedOptions().maximumFractionDigits ?? 2;
+  const name = new Intl.DisplayNames(["en"], { type: "currency" }).of(code) ?? code;
+  const info: CurrencyInfo = { code, kind: "fiat", name, decimals, displayDecimals: decimals };
+  derived.set(code, info);
+  return info;
+}
+
 /** Currencies a user can choose as primary display currency. */
 export const DISPLAY_CURRENCIES = ["EUR", "BRL", "USD", "BTC", "ETH"] as const;
 export type DisplayCurrency = (typeof DISPLAY_CURRENCIES)[number];
@@ -68,11 +106,12 @@ export function isDisplayCurrency(code: string): code is DisplayCurrency {
 }
 
 export function getCurrency(code: string): CurrencyInfo | undefined {
-  return BY_CODE.get(code.toUpperCase());
+  const upper = code.toUpperCase();
+  return BY_CODE.get(upper) ?? describeIso(upper);
 }
 
 export function isKnownCurrency(code: string): boolean {
-  return BY_CODE.has(code.toUpperCase());
+  return getCurrency(code) !== undefined;
 }
 
 export function currencyDecimals(code: string): number {

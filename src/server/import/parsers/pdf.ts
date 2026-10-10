@@ -22,7 +22,7 @@ import { z } from "zod";
 import { parseAmount } from "@/domain/import/parse-amount";
 import { inferDateOrder, parseDate, type DateOrder } from "@/domain/import/parse-date";
 import type { AccountType, ParsedAccount, ParsedTransaction, ParseWarning } from "@/domain/import/types";
-import { CURRENCIES, isKnownCurrency, normalizeCurrencyCode } from "@/domain/money/currencies";
+import { isKnownCurrency, isoCurrencyCodes, normalizeCurrencyCode } from "@/domain/money/currencies";
 import { dec, toPlain } from "@/domain/money/decimal";
 import { findIban, findInstitutionByText, getInstitution } from "../institution-catalog";
 import { mergeDocumentInterpretation, needsDocumentAi, validateDocumentInterpretation } from "./document-ai";
@@ -1039,10 +1039,14 @@ function columnAmounts(line: PdfLine, dateLength: number, columns: Column[]) {
 
 const DMY_CURRENCIES = new Set(["BRL", "EUR", "GBP", "CHF"]);
 
-/** Other fiat codes are also everyday words (TRY, PEN, COP): they count next to a number or a currency label. */
-const OTHER_FIAT = CURRENCIES.filter((c) => c.kind === "fiat" && !["EUR", "BRL", "USD", "GBP", "CHF"].includes(c.code)).map((c) => c.code).join("|");
+/**
+ * Any ISO currency code is also an everyday word (ALL, TOP, PEN, APPROVE ALL).
+ * Outside the five main codes, a code counts only after an amount ("10,00 ALL")
+ * or after a currency label ("Moeda: ALL"); symbols count in front of one too.
+ */
+const OTHER_FIAT = isoCurrencyCodes().filter((c) => !["EUR", "BRL", "USD", "GBP", "CHF"].includes(c)).join("|");
 const CURRENCY_IN_CONTEXT = new RegExp(
-  String.raw`(?:\d\s?\(?|(?:moneda|moeda|valuta|currency|divisa|w[aä]hrung)\s*:?\s*)(${OTHER_FIAT}|Gs\.?|₲|¥)(?![A-Za-z])|(?<![A-Za-z])(${OTHER_FIAT}|Gs\.?|₲|¥)\s?[-+]?\d`,
+  String.raw`(?<=\d[.,]\d{2,3}\s?\(?)(${OTHER_FIAT}|Gs\.?|₲|¥)(?![A-Za-z])|(?:moneda|moeda|valuta|currency|divisa|w[aä]hrung)\s*:?\s*(${OTHER_FIAT}|Gs\.?|₲|¥)(?![A-Za-z])|(?<![A-Za-z])(Gs\.?|₲|¥)\s?[-+]?\d[\d.,]*[.,]\d{2}(?!\d)`,
   "gi",
 );
 
@@ -1056,7 +1060,7 @@ export function currencyInText(lines: PdfLine[]): string | undefined {
       if (code) counts.set(code, (counts.get(code) ?? 0) + 1);
     }
     for (const m of line.text.matchAll(CURRENCY_IN_CONTEXT)) {
-      const mark = (m[1] ?? m[2])!;
+      const mark = (m[1] ?? m[2] ?? m[3])!;
       // A code is written in capitals; "pen" or "try" in running text is a word.
       const code = /^[a-z]{3}$/i.test(mark) && mark !== mark.toUpperCase() ? undefined : normalizeCurrencyCode(mark.replace(/\.$/, ""));
       if (code) counts.set(code, (counts.get(code) ?? 0) + 1);

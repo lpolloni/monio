@@ -27,6 +27,7 @@ import { postProcessUser } from "../processing/post-process";
 import type { Json } from "../supabase/database.types";
 import { dbNumeric } from "../supabase/numeric";
 import type { MonioClient } from "../supabase/server";
+import { ensureCurrencies } from "../currencies/ensure";
 import { layoutMemoryStore } from "./layout-memory-store";
 import { detectFormat } from "./detect-format";
 import { DOCUMENTS_BUCKET, sha256Hex, UploadRejectedError } from "./intake";
@@ -761,6 +762,16 @@ async function processJob(
   const hasBalances = statement.accounts.some((a) => a.closingBalance || a.openingBalance);
   if (totalParsed === 0 && !hasBalances) throw new ImportJobError("unreadable");
 
+  // Any ISO currency the statement uses gets its reference row first, so that it is
+  // stored, shown and converted like the others. Without it the rows would be skipped.
+  const used = statement.accounts.flatMap((a) => [a.currency, ...a.transactions.flatMap((t) => [t.currency, t.originalCurrency])]);
+  try {
+    const added = await ensureCurrencies(used.filter((c): c is string => !!c));
+    if (added.length) console.info(`[import] job ${job.id}: currencies added to the catalog: ${added.join(", ")}`);
+  } catch (error) {
+    // No reference row, no import of that currency: its rows are reported for review.
+    console.error(`[import] job ${job.id}: could not add currencies (${describeError(error)})`);
+  }
   const [{ data: currencyRows, error: currencyError }, { data: accountRows, error: accountsError }] = await Promise.all([
     db.from("currencies").select("code"),
     db.from("accounts").select("id, name, type, currency, institution_id, account_mask, external_ref_hash, is_archived").eq("user_id", userId),
