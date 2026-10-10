@@ -57,9 +57,9 @@ export function RecurringList({ items }: { items: RecurringItem[] }) {
           <div className="text-right">
             <p className="text-[15px] font-semibold text-fg tabular">{formatMoney(s.lastAmount, s.currency, locale)}</p>
             {s.monthlyEquivalent && s.cadence !== "monthly" ? (
-              <p className="text-[11.5px] text-fg-subtle">{t("monthlyEquivalent", { value: formatMoney(s.monthlyEquivalent, s.displayCurrency, locale) })}</p>
+              <p className="sensitive text-[11.5px] text-fg-subtle">{t("monthlyEquivalent", { value: formatMoney(s.monthlyEquivalent, s.displayCurrency, locale) })}</p>
             ) : s.currency !== s.displayCurrency && s.monthlyEquivalent ? (
-              <p className="text-[11.5px] text-fg-subtle">{formatMoney(s.monthlyEquivalent, s.displayCurrency, locale)}</p>
+              <p className="sensitive text-[11.5px] text-fg-subtle">{formatMoney(s.monthlyEquivalent, s.displayCurrency, locale)}</p>
             ) : null}
           </div>
         </motion.li>

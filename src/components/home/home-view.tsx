@@ -347,7 +347,7 @@ function BusinessNote({ entities, currency, include }: { entities: { name: strin
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-surface px-4 py-3 text-[13px] hairline">
       <Building className="size-4 text-business" />
-      <span className="text-fg-muted">
+      <span className="sensitive text-fg-muted">
         {entities.map((e) => `${e.name} · ${formatMoney(e.value, currency, locale)}`).join("  ·  ")}
       </span>
       <span className="text-fg-subtle">{include ? null : `— ${t("businessExcluded", { name: entities[0]?.name ?? "" })}`}</span>
@@ -549,7 +549,7 @@ function AttentionList({ items, count }: { items: InboxItemData[]; count: number
                 className="group flex items-start gap-3 rounded-2xl bg-bg-elevated/70 px-4 py-3.5 hairline transition hover:shadow-soft"
               >
                 <span className="mt-1.5 size-2 shrink-0 rounded-full bg-accent" aria-hidden />
-                <span className="flex-1 text-[14px] leading-relaxed text-fg">{text(item)}</span>
+                <span className="sensitive-prose flex-1 text-[14px] leading-relaxed text-fg">{text(item)}</span>
                 <ArrowRight className="mt-1 size-4 shrink-0 text-fg-subtle transition group-hover:translate-x-0.5" />
               </Link>
             </li>

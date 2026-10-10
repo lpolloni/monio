@@ -240,7 +240,7 @@ function TransactionDetail({ row, categories, onClose }: { row: ActivityRow | nu
             <Money amount={row.amount} currency={row.currency} signDisplay="exceptZero" className={cn("font-display text-[2.6rem] leading-none", row.amount.startsWith("-") ? "text-fg" : "text-positive")} />
             {row.converted ? <Money amount={row.converted} currency={row.displayCurrency} className="mt-1 block text-[14px] text-fg-muted" /> : null}
             {row.originalAmount && row.originalCurrency ? (
-              <p className="mt-1 text-[13px] text-fg-muted">{t("activity.originalAmount", { amount: formatMoney(row.originalAmount, row.originalCurrency, locale) })}</p>
+              <p className="sensitive mt-1 text-[13px] text-fg-muted">{t("activity.originalAmount", { amount: formatMoney(row.originalAmount, row.originalCurrency, locale) })}</p>
             ) : null}
             <div className="mt-3 flex flex-wrap gap-1.5">
               {row.classification !== "regular" ? <Badge tone="accent">{t("activity.excludedFromCashflow")}</Badge> : null}

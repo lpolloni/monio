@@ -2,6 +2,7 @@
 
 import { TrendingDown, TrendingUp, Info, CalendarClock, Repeat, Coins } from "lucide-react";
 import { useLocale, useTranslations } from "use-intl";
+import { usePrivacy } from "@/components/privacy";
 import { formatMoney, formatMonth } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -16,10 +17,11 @@ export interface InsightData {
 export function useInsightText() {
   const t = useTranslations();
   const locale = useLocale();
+  const { mask } = usePrivacy();
   return (insight: InsightData): string => {
     const p = insight.params;
     const cur = String(p.currency ?? "EUR");
-    const money = (v: unknown) => formatMoney(String(v ?? "0"), cur, locale);
+    const money = (v: unknown) => mask(formatMoney(String(v ?? "0"), cur, locale));
     const month = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}$/.test(v) ? formatMonth(v, locale, "long") : String(v ?? ""));
     switch (insight.kind) {
       case "category_spend_change":
@@ -76,7 +78,7 @@ export function InsightSentence({ insight, className }: { insight: InsightData; 
       <span className={cn("mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl", tone)} aria-hidden>
         <Icon className="size-4" strokeWidth={1.9} />
       </span>
-      <p className="text-[14.5px] leading-relaxed text-fg">{text}</p>
+      <p className="sensitive-prose text-[14.5px] leading-relaxed text-fg">{text}</p>
     </div>
   );
 }

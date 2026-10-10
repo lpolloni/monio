@@ -214,7 +214,7 @@ function InstitutionCard({ inst, currency, now, index }: { inst: ExploreInstitut
                     {a.lastUpdated ? formatRelative(a.lastUpdated, nowDate, locale) : t("common.neverUpdated")}
                   </span>
                   {a.creditLimit ? (
-                    <span className="mt-0.5 block text-[11.5px] text-fg-subtle">
+                    <span className="sensitive mt-0.5 block text-[11.5px] text-fg-subtle">
                       {t("explore.creditLimit", { value: formatMoney(a.creditLimit, a.currency, locale, { maximumFractionDigits: 0 }) })}
                     </span>
                   ) : null}

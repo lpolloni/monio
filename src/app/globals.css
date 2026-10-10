@@ -158,6 +158,14 @@
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum", "ss01";
   }
+  /* Privacy mode (see components/privacy.tsx): figures stay in place, unreadable. */
+  html[data-privacy="hidden"] :is(.tabular, .sensitive, .recharts-yAxis .recharts-cartesian-axis-tick-value) {
+    filter: blur(0.45em);
+    user-select: none;
+  }
+  html[data-privacy="hidden"]:not([data-privacy-ready]) .sensitive-prose {
+    visibility: hidden;
+  }
   .text-balance {
     text-wrap: balance;
   }

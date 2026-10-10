@@ -8,6 +8,7 @@ import { IntlProvider } from "use-intl";
 import type { Locale } from "@/i18n/config";
 import type { Messages } from "@/i18n/messages/en";
 import { InstallPromptListener } from "./install-app";
+import { PrivacyProvider } from "./privacy";
 import { ServiceWorkerRegistration } from "./service-worker";
 
 export function Providers({ locale, messages, children }: { locale: Locale; messages: Messages; children: ReactNode }) {
@@ -16,7 +17,7 @@ export function Providers({ locale, messages, children }: { locale: Locale; mess
       {/* Statement dates are calendar dates; format them in UTC so they never shift. */}
       <IntlProvider locale={locale} messages={messages} timeZone="UTC">
         <MotionConfig reducedMotion="user">
-          {children}
+          <PrivacyProvider>{children}</PrivacyProvider>
           <ServiceWorkerRegistration />
           <InstallPromptListener />
           <Toaster

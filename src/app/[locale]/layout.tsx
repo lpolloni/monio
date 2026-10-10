@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import { PRIVACY_SCRIPT } from "@/components/privacy";
 import { Providers } from "@/components/providers";
 import { LOCALES, isLocale } from "@/i18n/config";
 import { getMessages } from "@/i18n/messages";
@@ -57,6 +58,8 @@ export default async function RootLayout({ children, params }: { children: React
       className={`${geist.variable} ${geistMono.variable} ${instrument.variable}`}
     >
       <body>
+        {/* Before the first paint, so hidden amounts never flash. */}
+        <script dangerouslySetInnerHTML={{ __html: PRIVACY_SCRIPT }} />
         <Providers locale={locale} messages={getMessages(locale)}>
           {children}
         </Providers>

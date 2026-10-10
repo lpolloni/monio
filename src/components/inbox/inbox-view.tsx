@@ -119,7 +119,7 @@ function InboxCard({
           <Icon className="size-[18px]" strokeWidth={1.9} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] leading-relaxed text-fg">{text(item)}</p>
+          <p className="sensitive-prose text-[15px] leading-relaxed text-fg">{text(item)}</p>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {item.kind === "transfer_match" ? (

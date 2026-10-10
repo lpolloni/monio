@@ -105,7 +105,7 @@ export function AccountDetailView({ detail, short, now }: { detail: AccountDetai
               {account.wallet ? null : ` · ${t("home.freshnessHint")}`}
             </p>
             {account.creditLimit ? (
-              <p className="mt-1 text-[12.5px] text-fg-subtle">
+              <p className="sensitive mt-1 text-[12.5px] text-fg-subtle">
                 {t("explore.creditLimit", { value: formatMoney(account.creditLimit, account.currency, locale, { maximumFractionDigits: 0 }) })}
               </p>
             ) : null}
@@ -142,7 +142,7 @@ export function AccountDetailView({ detail, short, now }: { detail: AccountDetai
                   <span className="grid size-10 place-items-center rounded-full bg-crypto/15 text-[12px] font-semibold text-crypto">{h.symbol.slice(0, 4)}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[14.5px] font-medium text-fg">{h.name}</span>
-                    <span className="block text-[12px] text-fg-subtle">
+                    <span className="sensitive block text-[12px] text-fg-subtle">
                       {formatNumber(h.quantity, locale, 8)} {h.symbol} · {h.network}
                     </span>
                   </span>

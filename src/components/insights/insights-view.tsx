@@ -42,12 +42,13 @@ export function InsightsView({ data }: { data: InsightsPageData }) {
   const cur = data.currency;
   const money = (v: string) => formatMoney(v, cur, locale);
 
+  // The same wealth at today's rates: off until asked for, as it only matters with foreign currencies.
+  const [fxLine, setFxLine] = useState(false);
   const nwData = data.netWorth.map((p) => ({
     date: p.date,
     value: Number(p.netWorth), // drawing only
     label: money(p.netWorth),
-    secondary: Number(p.atConstantRates),
-    secondaryLabel: money(p.atConstantRates),
+    ...(fxLine ? { secondary: Number(p.atConstantRates), secondaryLabel: money(p.atConstantRates) } : {}),
   }));
   const cryptoData = data.netWorth.map((p) => ({ date: p.date, value: Number(p.crypto), label: money(p.crypto) }));
   const cashflowData = data.cashflow.map((c) => ({ ...c, incomeN: Number(c.income), expensesN: Number(c.expenses) }));
@@ -82,13 +83,24 @@ export function InsightsView({ data }: { data: InsightsPageData }) {
         <Card>
           <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="font-display text-[1.7rem] leading-none text-fg">{t("insights.netWorthEvolution")}</h2>
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap items-center gap-4">
               <LegendItem color="var(--accent)" label={t("home.netWorth")} />
-              <LegendItem color="var(--fg-subtle)" label={t("insights.atConstantRates")} dashed />
+              {fxLine ? <LegendItem color="var(--fg-subtle)" label={t("insights.atConstantRates")} dashed /> : null}
+              <button
+                type="button"
+                onClick={() => setFxLine((v) => !v)}
+                aria-pressed={fxLine}
+                className={cn(
+                  "rounded-full px-3 py-1 text-[12.5px] transition hairline",
+                  fxLine ? "bg-accent-soft text-fg" : "bg-surface text-fg-muted hover:bg-surface-2 hover:text-fg",
+                )}
+              >
+                {t(fxLine ? "insights.hideFxLine" : "insights.showFxLine")}
+              </button>
             </div>
           </div>
           <AreaTrend data={nwData} currency={cur} primaryName={t("home.netWorth")} secondaryName={t("insights.atConstantRates")} height={280} />
-          <p className="mt-3 text-[12.5px] text-fg-subtle">{t("insights.fxEffectLegend")}</p>
+          {fxLine ? <p className="mt-3 text-[12.5px] text-fg-subtle">{t("insights.fxEffectLegend")}</p> : null}
         </Card>
         <Card>
           <h2 className="mb-4 font-display text-[1.7rem] leading-none text-fg">{t("insights.portfolio")}</h2>

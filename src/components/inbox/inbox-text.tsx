@@ -1,6 +1,7 @@
 "use client";
 
 import { useLocale, useTranslations } from "use-intl";
+import { usePrivacy } from "@/components/privacy";
 import { formatDate, formatMoney } from "@/lib/format";
 
 export interface InboxItemData {
@@ -18,7 +19,8 @@ export function useInboxText() {
   const t = useTranslations("inbox");
   const tActivity = useTranslations("activity");
   const locale = useLocale();
-  const money = (amount: unknown, currency: unknown) => formatMoney(str(amount, "0"), str(currency, "EUR"), locale);
+  const { mask } = usePrivacy();
+  const money = (amount: unknown, currency: unknown) => mask(formatMoney(str(amount, "0"), str(currency, "EUR"), locale));
   const date = (v: unknown) => (typeof v === "string" && v ? formatDate(v, locale, "medium") : "");
   return (item: InboxItemData): string => {
     const p = item.payload;
