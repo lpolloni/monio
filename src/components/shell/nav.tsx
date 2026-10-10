@@ -4,6 +4,7 @@ import { ArrowDownUp, ChartSpline, Compass, House, Plus } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Suspense, type ReactNode } from "react";
 import { useLocale, useTranslations } from "use-intl";
 import { cn } from "@/lib/utils";
 import { useAddSheet } from "./add-sheet";
@@ -20,11 +21,31 @@ function useActiveSegment(): string {
   return pathname.split("/")[2] ?? "";
 }
 
+/**
+ * The pathname is unknown while prerendering routes with request-time params
+ * (e.g. /explore/[accountId]), so reading it must sit under Suspense. The
+ * fallback is the same navigation without an active item: links work at once
+ * and only the highlight streams in.
+ */
+function withActiveSegment(View: (props: { active: string | null }) => ReactNode) {
+  function Resolved() {
+    return <View active={useActiveSegment()} />;
+  }
+  return function Navigation() {
+    return (
+      <Suspense fallback={<View active={null} />}>
+        <Resolved />
+      </Suspense>
+    );
+  };
+}
+
 /** Desktop/tablet: floating glass pill with a gliding active indicator. */
-export function TopNav() {
+export const TopNav = withActiveSegment(TopNavView);
+
+function TopNavView({ active }: { active: string | null }) {
   const t = useTranslations("nav");
   const locale = useLocale();
-  const active = useActiveSegment();
   return (
     <nav aria-label={t("mainNavigation")} className="glass hidden rounded-full p-1 hairline shadow-soft md:flex">
       {ITEMS.map(({ segment, key, icon: Icon }) => {
@@ -56,10 +77,11 @@ export function TopNav() {
 }
 
 /** Phones: thumb-reachable tab bar with the ADD action in the middle. */
-export function BottomNav() {
+export const BottomNav = withActiveSegment(BottomNavView);
+
+function BottomNavView({ active }: { active: string | null }) {
   const t = useTranslations("nav");
   const locale = useLocale();
-  const active = useActiveSegment();
   const { setOpen } = useAddSheet();
   const left = ITEMS.slice(0, 2);
   const right = ITEMS.slice(2);
