@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   INSTITUTIONS,
+  bicContradicts,
+  findBic,
   findIban,
+  findInstitutionByBic,
   findInstitutionByIban,
   findInstitutionByOfxId,
   findInstitutionByText,
@@ -61,5 +64,20 @@ describe("institution catalog", () => {
     expect(findInstitutionByIban("IT00X0103000000000000000000")?.slug).toBe("mps");
     expect(findInstitutionByIban("DE00100110010000000000")?.slug).toBe("n26");
     expect(findInstitutionByIban("FR7600000000000000000000000")).toBeUndefined();
+  });
+
+  it("reads a labelled BIC and maps it to its bank", () => {
+    expect(findBic("IBAN: IT60X0542811101000000123456\nBIC: BBVAITMMXXX")).toBe("BBVAITMMXXX");
+    expect(findBic("SWIFT/BIC NTSBDEB1XXX")).toBe("NTSBDEB1XXX");
+    expect(findBic("ESTRATTO TRIMESTRALE")).toBeUndefined();
+    expect(findInstitutionByBic("BBVAITMMXXX")).toMatchObject({ slug: "bbva-it", confidence: 0.9 });
+    expect(findInstitutionByBic("BBVAESMMXXX")).toBeUndefined();
+    expect(findInstitutionByIban("IT22Q0357600000000000000000")?.slug).toBe("bbva-it");
+  });
+
+  it("knows when a BIC belongs to another bank than the one named", () => {
+    expect(bicContradicts("BBVAITMMXXX", "n26")).toBe(true);
+    expect(bicContradicts("NTSBITM1XXX", "n26")).toBe(false);
+    expect(bicContradicts("BBVAITMMXXX", "nubank")).toBe(false);
   });
 });

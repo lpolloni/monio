@@ -1,7 +1,8 @@
 import "server-only";
 import { computeCashflow, type Breakdown } from "@/domain/analytics/cashflow";
-import { computeNetWorthHistory } from "@/domain/analytics/net-worth-history";
-import { addMonthsToKey, monthEnd, monthKey, monthStart, monthsBetween } from "@/domain/analytics/periods";
+import { dailyBalances } from "@/domain/analytics/balance-series";
+import { computeNetWorthHistory, type BalancePoint } from "@/domain/analytics/net-worth-history";
+import { addDaysIso, addMonthsToKey, monthEnd, monthKey, monthStart, monthsBetween } from "@/domain/analytics/periods";
 import { computePortfolio } from "@/domain/portfolio/portfolio";
 import { todayIso } from "./dates";
 import { getInsightsList, type InsightView } from "./insights";
@@ -58,8 +59,9 @@ export async function getInsightsPageData(): Promise<InsightsPageData> {
     };
   }
 
-  // Net worth history at month ends + today.
-  const dates = [...months.slice(0, -1).map((m) => monthEnd(m)), today];
+  // Net worth on every day of the period.
+  const dates: string[] = [];
+  for (let day = from; day <= today; day = addDaysIso(day, 1)) dates.push(day);
   const accountIds = accounts.map((a) => a.accountId);
   const { data: balances } = await supabase
     .from("account_balances")
@@ -84,9 +86,20 @@ export async function getInsightsPageData(): Promise<InsightsPageData> {
     const code = asset?.currency_code;
     return accountId && code ? [{ accountId, asOf: h.as_of, currency: code, quantity: h.quantity }] : [];
   });
+  // Statement balances only mark the start and end of each statement: walk them
+  // through the booked movements to know the balance on the days in between.
+  const dailyPoints: BalancePoint[] = [];
+  for (const account of accounts) {
+    const snapshots = (balances ?? []).filter((b) => b.account_id === account.accountId);
+    for (const cur of new Set(snapshots.map((b) => b.currency))) {
+      const movements = transactions.filter((t) => t.accountId === account.accountId && t.currency === cur && t.status === "posted" && !t.duplicateOf);
+      const series = dailyBalances(snapshots.filter((b) => b.currency === cur).map((b) => ({ asOf: b.as_of, balance: b.balance })), movements, { movementsFrom: from });
+      dailyPoints.push(...series.map((p) => ({ accountId: account.accountId, asOf: p.date, balance: p.balance, currency: cur })));
+    }
+  }
   const history = computeNetWorthHistory(
     accounts.map((a) => ({ accountId: a.accountId, entityKind: a.entityKind, includeInNetWorth: a.includeInNetWorth, isCrypto: a.type === "crypto_wallet" })),
-    (balances ?? []).map((b) => ({ accountId: b.account_id, asOf: b.as_of, balance: b.balance, currency: b.currency })),
+    dailyPoints,
     holdings,
     fx,
     currency,

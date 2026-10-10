@@ -12,6 +12,9 @@ import type { InstitutionHint, ParsedAccount, ParsedStatement, ParsedTransaction
 import { dec, sum, toPlain } from "@/domain/money/decimal";
 import { detectFormat } from "./detect-format";
 import {
+  bicContradicts,
+  findBic,
+  findInstitutionByBic,
   findInstitutionByIban,
   findInstitutionByText,
   getInstitution,
@@ -209,17 +212,20 @@ function hint(match: InstitutionMatch, confidence = match.confidence, name?: str
 }
 
 /**
- * Institution precedence: profile header signature > OFX ids > document text
- * (preamble/header/footer, never transaction descriptions) > IBAN bank code >
- * file name (low confidence). A profile whose header is shared by many banks
- * yields to a different institution named in the document text.
+ * Institution precedence: profile header signature > OFX ids > the statement's
+ * own BIC > document text (preamble/header/footer, never transaction
+ * descriptions) > IBAN bank code > file name (low confidence). A profile whose
+ * header is shared by many banks yields to a different institution named in
+ * the document text, and a name contradicted by the statement's BIC is dropped.
  */
 function resolveInstitution(output: ParserOutput, statement: ParsedStatement, filename?: string): InstitutionHint | undefined {
   if (output.documentInstitution && !output.profileInstitution) {
     const match = findInstitutionByText(output.documentInstitution);
     return match ? hint(match) : { name: output.documentInstitution, confidence: 0.8, evidence: "Issuer copied from a source-verified document header/footer" };
   }
-  const textMatch = output.institutionText ? findInstitutionByText(output.institutionText) : undefined;
+  const bic = output.institutionText ? findBic(output.institutionText) : undefined;
+  const named = output.institutionText ? findInstitutionByText(output.institutionText) : undefined;
+  const textMatch = named && bic && bicContradicts(bic, named.slug) ? undefined : named;
   if (output.profileInstitution) {
     const { slug, weak, evidence } = output.profileInstitution;
     if (!weak) return hint({ slug, confidence: 0.9, evidence });
@@ -228,6 +234,8 @@ function resolveInstitution(output: ParserOutput, statement: ParsedStatement, fi
     return hint({ slug, confidence: 0.55, evidence });
   }
   if (output.ofxInstitution) return hint(output.ofxInstitution, output.ofxInstitution.confidence, output.ofxInstitution.name);
+  const byBic = bic ? findInstitutionByBic(bic) : undefined;
+  if (byBic) return hint(byBic);
   if (textMatch) return hint(textMatch);
   for (const account of statement.accounts) {
     const byIban = account.identifier ? findInstitutionByIban(account.identifier) : undefined;

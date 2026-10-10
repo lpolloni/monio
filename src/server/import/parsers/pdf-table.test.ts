@@ -123,6 +123,86 @@ describe("PDF positioned-table reader", () => {
   });
 });
 
+// Fictional quarterly statement whose header is stacked on two lines (plus a
+// line of units) and whose dates/amounts are vertically centred on a wrapped
+// description: half of it is printed above the dated line, half below.
+const centredRow = (booked: string, value: string, amount: string, balance: string, text?: string): PdfLineSpec =>
+  [{ x: 41, text: booked }, { x: 129, text: value }, ...(text ? [{ x: 231, text }] : []), { x: 465, text: amount }, { x: 515, text: balance }];
+const cell = (text: string): PdfLineSpec => [{ x: 231, text }];
+const centredPages: PdfLineSpec[][] = [
+  [
+    "Cliente Fittizio", "Estratto conto trimestrale", "", "IBAN: IT60 X054 2811 1010 0000 0123 456", "", "BIC: FITTITMMXXX", "",
+    "Periodo di riferimento 01/07/2026 fino a 30/09/2026", "",
+    [{ x: 383, text: "Saldo inizio trimestre: 100,00 (EUR)" }], "", "",
+    [{ x: 460, text: "Importo" }, { x: 525, text: "Saldo" }],
+    [{ x: 42, text: "Data contabile" }, { x: 148, text: "Data valuta" }, { x: 306, text: "Causale" }],
+    [{ x: 471, text: "(EUR)" }, { x: 524, text: "(EUR)" }],
+    "",
+    cell("BONIFICI"), centredRow("02/07", "01/07", "950,00", "1.050,00"), cell("Sent from N26"),
+    "",
+    cell("ORDINI DI PAGAMENTO EMESSI IN"), "", cell("VALUTA LOCALE"),
+    centredRow("03/07", "03/07", "-50,00", "1.000,00"),
+    cell("Prat. 0000001-26 del 30/04/2026:"), "", cell("Compravendita"),
+    "",
+    cell("IMPOSTA DI BOLLO"), "", centredRow("04/07", "04/07", "-8,55", "991,45", "IMPOSTA DI BOLLO CONTO 01-04/30-06"), "", cell("S.MEDIO 1.000,00 EUR"),
+  ],
+  [
+    [{ x: 460, text: "Importo" }, { x: 525, text: "Saldo" }],
+    [{ x: 42, text: "Data contabile" }, { x: 148, text: "Data valuta" }, { x: 306, text: "Causale" }],
+    [{ x: 471, text: "(EUR)" }, { x: 524, text: "(EUR)" }],
+    "",
+    cell("TRASFERIMENTO"), centredRow("30/09", "30/09", "-91,45", "900,00"), cell("CLIENTE FITTIZIO"),
+    "", "",
+    [{ x: 383, text: "Saldo fine trimestre: 900,00 (EUR)" }],
+  ],
+  ["Ti ringraziamo per la collaborazione.", "Banca Fittizia Aurora S.p.A. - Sede legale: Via Inventata 1, Milano"],
+];
+// Half the usual line pitch, so that a dated line can sit between two description lines.
+const centredPdf = (pages = centredPages) => buildPdf(pages, { lineHeight: 7.5 });
+
+describe("rows vertically centred on a wrapped description", () => {
+  it("reads a header stacked on two lines and joins the text above and below each dated line", async () => {
+    const st = await parseDocument({ bytes: centredPdf(), filename: "estratto.pdf" });
+    expect(st.profile).toBe("pdf-table");
+    expect(st.warnings).toEqual([]);
+    expect(st.period).toEqual({ start: "2026-07-01", end: "2026-09-30" });
+    const account = st.accounts[0]!;
+    expect(account).toMatchObject({
+      currency: "EUR", identifier: "IT60X0542811101000000123456",
+      openingBalance: { amount: "100", asOf: "2026-07-01" }, closingBalance: { amount: "900", asOf: "2026-09-30" },
+    });
+    expect(account.transactions.map((t) => [t.bookedOn, t.valueOn, t.amount, t.description])).toEqual([
+      ["2026-07-02", "2026-07-01", "950", "BONIFICI Sent from N26"],
+      ["2026-07-03", undefined, "-50", "ORDINI DI PAGAMENTO EMESSI IN VALUTA LOCALE Prat. 0000001-26 del 30/04/2026: Compravendita"],
+      ["2026-07-04", undefined, "-8.55", "IMPOSTA DI BOLLO IMPOSTA DI BOLLO CONTO 01-04/30-06 S.MEDIO 1.000,00 EUR"],
+      ["2026-09-30", undefined, "-91.45", "TRASFERIMENTO CLIENTE FITTIZIO"],
+    ]);
+  });
+
+  it("never takes a bank named in a movement for the issuer of the statement", async () => {
+    const st = await parseDocument({ bytes: centredPdf(), filename: "estratto.pdf" });
+    expect(st.institution).toBeUndefined();
+  });
+
+  it("lets the statement's own BIC name the issuer", async () => {
+    const pages = centredPages.map((page) => page.map((line) => (line === "BIC: FITTITMMXXX" ? "BIC: BBVAITMMXXX" : line)));
+    const st = await parseDocument({ bytes: centredPdf(pages), filename: "estratto.pdf" });
+    expect(st.institution).toMatchObject({ slug: "bbva-it", confidence: 0.9 });
+  });
+
+  it("keeps reading the lines under a row as its details when the table is not centred", async () => {
+    const lines = await extractPdfLines(buildPdf(pages));
+    const st = parsePdfTable(lines)!.statement;
+    expect(st.accounts[0]!.transactions[1]!.description).toBe("PEDAGGIO FITTIZIO - Carta - Auto");
+  });
+
+  it("flags rows without a description instead of guessing when the lines do not mirror", async () => {
+    const broken = centredPages.map((page) => page.filter((line) => !(Array.isArray(line) && line[0]!.text === "Sent from N26")));
+    const lines = await extractPdfLines(centredPdf(broken));
+    expect(parsePdfTable(lines)!.statement.warnings.some((w) => w.code === "row_unreadable")).toBe(true);
+  });
+});
+
 describe("learning the table of an unknown PDF layout", () => {
   // No keyword of this header row is known to any reader.
   const head: PdfLineSpec = [{ x: 40, text: "Cosa" }, { x: 300, text: "Quando" }, { x: 430, text: "Quanto" }];

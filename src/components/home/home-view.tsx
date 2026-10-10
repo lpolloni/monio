@@ -230,7 +230,7 @@ export function HomeView({ model }: { model: HomeViewModel }) {
           <div className="-mx-2 flex flex-col">
             {model.recent.map((tx, i) => (
               <motion.div key={tx.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.04 * i }}>
-                <TransactionItem tx={tx} />
+                <TransactionItem tx={tx} showDate />
               </motion.div>
             ))}
           </div>

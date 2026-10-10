@@ -32,6 +32,22 @@ describe("PDF text extraction", () => {
 });
 
 describe("PDF deterministic line parser", () => {
+  it("does not read the issuer from text wrapped around the movements", async () => {
+    const st = await parsePdf(
+      pdf([
+        "Estratto conto corrente - Cliente Fittizio",
+        "Periodo: 01/03/2026 a 31/03/2026",
+        [{ x: 40, text: "05/03/2026" }, { x: 120, text: "BONIFICO" }, { x: 400, text: "950,00 EUR" }],
+        [{ x: 120, text: "Sent from N26" }],
+        [{ x: 40, text: "06/03/2026" }, { x: 120, text: "PAGAMENTO" }, { x: 400, text: "-20,00 EUR" }],
+        [{ x: 120, text: "Revolut Bank UAB" }],
+        "Pagina 1 di 1",
+      ]),
+    );
+    expect(st.accounts[0]!.transactions.map((t) => t.amount)).toEqual(["950", "-20"]);
+    expect(st.institution).toBeUndefined();
+  });
+
   it("reads a checking statement with signed amounts, balances and several pages", async () => {
     const st = await parsePdf(
       pdf(

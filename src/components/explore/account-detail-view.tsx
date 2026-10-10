@@ -243,6 +243,7 @@ export function AccountDetailView({ detail, short, now }: { detail: AccountDetai
                 <TransactionItem
                   key={tx.id}
                   compact
+                  showDate
                   tx={{ ...tx, displayCurrency: detail.currency, accountName: account.name, institutionName: account.institutionName }}
                 />
               ))}

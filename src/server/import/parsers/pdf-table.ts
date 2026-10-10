@@ -9,6 +9,11 @@
  * under a movement without money are its wrapped details. Repeated page
  * headers/footers are never details, and never movements.
  *
+ * Two print variants are read too: a header stacked on two lines ("Importo
+ * Saldo" above "Data contabile | Data valuta | Causale"), and rows whose date
+ * and amounts are vertically centred on a wrapped description, so that part of
+ * it is printed above the dated line and the rest, mirrored, below it.
+ *
  * It never guesses: a money line it cannot place becomes a warning, an
  * unsigned amount without a debit/credit column refuses the whole reader, and
  * printed opening/closing or running balances are checked with decimal
@@ -38,8 +43,8 @@ export interface TableColumn {
 }
 
 const MAX_DETAIL_LINES = 6;
-const OPENING_LABEL = /^(saldo (anterior|inicial|iniziale|precedente|di apertura|de abertura)|opening balance|previous balance|balance brought forward|anfangssaldo|alter kontostand|solde (initial|precedent))\b/;
-const CLOSING_LABEL = /^((il tuo )?nuovo saldo|novo saldo|saldo (final|finale|di chiusura|atual)|closing balance|(your )?new balance|balance carried forward|endsaldo|neuer kontostand|solde final|nouveau solde)\b/;
+const OPENING_LABEL = /^(saldo (anterior|inicial|iniziale|inizio|precedente|di apertura|de abertura)|opening balance|previous balance|balance brought forward|anfangssaldo|alter kontostand|solde (initial|precedent))\b/;
+const CLOSING_LABEL = /^((il tuo )?nuovo saldo|novo saldo|saldo (final|finale|fine|di chiusura|atual)|closing balance|(your )?new balance|balance carried forward|endsaldo|neuer kontostand|solde final|nouveau solde)\b/;
 const SUMMARY_LABEL = /^(saldo|balance|solde|kontostand|total|totale|totais|subtotal|summe|somme|operazioni in (uscita|entrata)|total de (entradas|saidas)|money (in|out)|paid (in|out))\b/;
 const VALUE_DATE_DETAIL = /^(?:data )?(?:valuta|value date|data valor|wertstellung|date de valeur)\s*:?\s*(\S+)$/;
 /** Named sub-accounts printed above their own table ("Spazio: Savings", "Pocket: Travel"). */
@@ -47,6 +52,13 @@ const SECTION_LABEL = /^(?:spazio|space|pocket|vault|cofrinho|caixinha|sottocont
 const DATE_CELL = /^(\d{4}-\d{2}-\d{2}|\d{1,2}[/.\-]\d{1,2}[/.\-](?:\d{4}|\d{2}))(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?(?:\s+(.*))?$/;
 const SHORT_DATE_CELL = /^(\d{1,2})\/(\d{1,2})(?:\s+(.*))?$/;
 const CURRENCY_SUFFIX = /\s*(?:EUR|BRL|USD|GBP|CHF)$/;
+/** A header cell that only names the unit of the column above it: "(EUR)", "R$". */
+const UNIT_CELL = /^\(?(?:EUR|BRL|USD|GBP|CHF|R\$|US\$|€|£|\$)\)?$/;
+const HAS_AMOUNT = /\d[.,]\d{2}(?!\d)/;
+/** Mirrored description lines sit at the same distance above and below their row. */
+const MIRROR_TOLERANCE = 2;
+/** Lines of one header are printed within a couple of text heights. */
+const HEADER_STACK_HEIGHT = 30;
 
 /** Columns named by a header line: a date column and a movement column are required. */
 export function tableHeaderColumns(line: PdfLine): TableColumn[] | undefined {
@@ -63,6 +75,32 @@ export function tableHeaderColumns(line: PdfLine): TableColumn[] | undefined {
   }
   const has = (role: ColumnRole) => columns.some((c) => c.role === role);
   return has("date") && (has("amount") || (has("debit") && has("credit"))) ? columns : undefined;
+}
+
+/**
+ * Headers printed on two lines, each naming some of the columns, optionally
+ * followed or preceded by a line of units. Maps the last line of each stack to
+ * its columns; `parts` receives the other lines.
+ */
+function stackedHeaders(lines: PdfLine[], parts: Set<number>): Map<number, TableColumn[]> {
+  const found = new Map<number, TableColumn[]>();
+  const names = (l: PdfLine) => l.items.length <= 6 && l.items.some((i) => roleOfHeader(i.text));
+  const units = (l: PdfLine | undefined): l is PdfLine => !!l && l.items.length > 0 && l.items.every((i) => UNIT_CELL.test(i.text));
+  for (let i = 0; i + 1 < lines.length; i++) {
+    let stack = [lines[i]!, lines[i + 1]!];
+    if (!stack.every(names)) continue;
+    if (units(lines[i + 2])) stack.push(lines[i + 2]!);
+    if (units(lines[i - 1])) stack = [lines[i - 1]!, ...stack];
+    const top = stack[0]!.y, bottom = stack.at(-1)!.y;
+    if (stack.some((l) => l.page !== stack[0]!.page) || (top !== undefined && bottom !== undefined && top - bottom > HEADER_STACK_HEIGHT)) continue;
+    const items = stack.flatMap((l) => l.items).filter((item) => !UNIT_CELL.test(item.text)).sort((a, b) => a.x - b.x);
+    const columns = tableHeaderColumns({ ...stack[0]!, text: items.map((item) => item.text).join(" "), items });
+    if (!columns) continue;
+    found.set(stack.at(-1)!.line, columns);
+    for (const l of stack.slice(0, -1)) parts.add(l.line);
+    i += stack.length - 1;
+  }
+  return found;
 }
 
 interface Cells {
@@ -102,6 +140,54 @@ function readCells(line: PdfLine): Cells {
 
 const compact = (text: string) => fold(text).replace(/[^a-z0-9]/g, "");
 const isRow = (cells: Cells) => cells.dates.length > 0 && cells.money.length > 0;
+
+/** The one amount of a balance line, also when it is glued to its label: "Saldo fine trimestre: 2.001,72 (EUR)". */
+function labelledAmount(line: PdfLine, cells: Cells): AmountReading | undefined {
+  if (cells.money.length) return cells.money.length === 1 ? cells.money[0]!.reading : undefined;
+  const found = line.text.split(" ").map((token) => readAmountToken(token)).filter((r): r is AmountReading => !!r);
+  return found.length === 1 ? found[0] : undefined;
+}
+
+interface TableRow {
+  line: PdfLine;
+  cells: Cells;
+  columns: TableColumn[];
+  section: Section;
+  /** Text-only lines since the previous row (shared with its `after`) or table boundary. */
+  before: PdfLine[];
+  /** Text-only lines up to the next row or table boundary. */
+  after: PdfLine[];
+}
+
+/**
+ * Rows vertically centred on their description: each line above the dated line
+ * has a twin at the same distance below it. Returns undefined unless the whole
+ * table reads that way (and some row has no text of its own), in which case
+ * the lines under a row are simply its details.
+ */
+function centredDescriptions(rows: TableRow[]): Map<TableRow, { above: PdfLine[]; below: PdfLine[] }> | undefined {
+  if (rows.every((r) => /\p{L}/u.test(r.cells.text.join(" ")))) return undefined;
+  const out = new Map<TableRow, { above: PdfLine[]; below: PdfLine[] }>();
+  const claimed = new Set<number>();
+  for (const [index, row] of rows.entries()) {
+    const y = row.line.y;
+    if (y === undefined) return undefined;
+    const above = row.before.filter((l) => !claimed.has(l.line));
+    const unmatched = [...above];
+    const below: PdfLine[] = [];
+    for (const l of row.after) {
+      const twin = unmatched.findIndex((a) => a.y !== undefined && l.y !== undefined && Math.abs(a.y - y - (y - l.y)) <= MIRROR_TOLERANCE);
+      if (twin < 0) break;
+      unmatched.splice(twin, 1);
+      below.push(l);
+      claimed.add(l.line);
+    }
+    // Every line must belong to a row: what is left under this one opens the next.
+    if (unmatched.length || (below.length < row.after.length && rows[index + 1]?.before !== row.after)) return undefined;
+    out.set(row, { above, below });
+  }
+  return [...out.values()].some((d) => d.above.length) ? out : undefined;
+}
 
 function nearest<T extends TableColumn>(columns: T[], left: number, right: number): T | undefined {
   const distance = (c: TableColumn) => Math.min(Math.abs(c.left - left), Math.abs(c.right - right), Math.abs((c.left + c.right) / 2 - (left + right) / 2));
@@ -150,6 +236,8 @@ export function parsePdfTable(lines: PdfLine[], ctx: DocumentParseContext = {}, 
     }
     if (columns) headers.set(line.line, columns);
   }
+  const headerParts = new Set<number>();
+  if (!headers.size) for (const [line, columns] of stackedHeaders(lines, headerParts)) headers.set(line, columns);
   if (!headers.size) return undefined;
 
   const cellsOf = new Map(lines.map((l) => [l.line, readCells(l)]));
@@ -205,7 +293,7 @@ export function parsePdfTable(lines: PdfLine[], ctx: DocumentParseContext = {}, 
   let columns: TableColumn[] | undefined;
   let section: Section | undefined;
   let usesMinus = false;
-  const rows: { line: PdfLine; cells: Cells; columns: TableColumn[]; section: Section; details: PdfLine[] }[] = [];
+  const rows: TableRow[] = [];
 
   for (const page of pages) {
     const pageLines = byPage.get(page)!;
@@ -219,16 +307,17 @@ export function parsePdfTable(lines: PdfLine[], ctx: DocumentParseContext = {}, 
       active = pageLines.some((l) => isRow(cellsOf.get(l.line)!) && cellsOf.get(l.line)!.money.some((m) => moneyEdges.some((e) => Math.abs(e - m.right) <= 2)));
       if (active) section = sectionFor(page, section);
     }
-    let current: (typeof rows)[number] | undefined;
+    let loose: PdfLine[] = [];
     for (const line of pageLines) {
-      if (header && line.line === header.line) { active = true; current = undefined; continue; }
+      if (header && line.line === header.line) { active = true; loose = []; continue; }
       if (!active || !columns || !section) continue;
-      if (furniture.has(line.line)) { current = undefined; continue; }
+      if (furniture.has(line.line)) { loose = []; continue; }
       tableLines.add(line.line);
       const cells = cellsOf.get(line.line)!;
       if (isRow(cells)) {
-        current = { line, cells, columns, section, details: [] };
-        rows.push(current);
+        const row: TableRow = { line, cells, columns, section, before: loose, after: [] };
+        rows.push(row);
+        loose = row.after;
         for (const m of cells.money) {
           moneyEdges.push(m.right);
           if (nearest(columns.filter((c) => c.role !== "date" && c.role !== "valueDate" && c.role !== "description"), m.left, m.right)?.role !== "balance" && (m.reading.sign === "minus" || m.reading.sign === "debit")) usesMinus = true;
@@ -238,13 +327,16 @@ export function parsePdfTable(lines: PdfLine[], ctx: DocumentParseContext = {}, 
         if (!OPENING_LABEL.test(label) && !CLOSING_LABEL.test(label) && !SUMMARY_LABEL.test(label)) {
           warnings.push({ code: "row_unreadable", row: line.line, message: "Table line has an amount but no date; it was not imported." });
         }
-        current = undefined;
-      } else if (current && current.details.length < MAX_DETAIL_LINES) current.details.push(line);
+        loose = [];
+      } else if (HAS_AMOUNT.test(line.text) && (OPENING_LABEL.test(fold(line.text)) || CLOSING_LABEL.test(fold(line.text)))) {
+        loose = []; // A printed balance closes the row above it; it is never its detail.
+      } else loose.push(line);
     }
   }
   if (!rows.length) return undefined;
+  const centred = centredDescriptions(rows);
 
-  const admin = lines.filter((l) => !tableLines.has(l.line) && !headers.has(l.line));
+  const admin = lines.filter((l) => !tableLines.has(l.line) && !headers.has(l.line) && !headerParts.has(l.line));
   const adminText = admin.map((l) => l.text).join("\n");
   if (isCardStatementText(adminText)) return undefined;
 
@@ -271,13 +363,14 @@ export function parsePdfTable(lines: PdfLine[], ctx: DocumentParseContext = {}, 
 
     let valueOn = completeDate(dated.find((d) => d.raw !== bookedRaw && d.role === "valueDate")?.raw ?? "");
     const details: string[] = [];
-    for (const detail of row.details) {
+    const { above, below } = centred?.get(row) ?? { above: [], below: row.after.slice(0, MAX_DETAIL_LINES) };
+    for (const detail of below) {
       const value = VALUE_DATE_DETAIL.exec(fold(detail.text));
       const date = value ? parseDate(value[1]!, order) : null;
       if (date) valueOn ??= date;
       else details.push(detail.text);
     }
-    const title = cells.text.join(" ");
+    const title = [...above.map((l) => l.text), ...cells.text].join(" ");
     if (!/\p{L}/u.test(title)) { unreadable("Table row has no description."); continue; }
 
     const tx: ParsedTransaction = {
@@ -286,7 +379,7 @@ export function parsePdfTable(lines: PdfLine[], ctx: DocumentParseContext = {}, 
       amount,
       currency: movement.reading.currency ?? currency,
       sourceRow: line.line,
-      raw: { line: [line.text, ...row.details.map((d) => d.text)].join("\n").slice(0, 2000), page: String(line.page), date: bookedRaw, amount: movement.text },
+      raw: { line: [...above, line, ...below].map((l) => l.text).join("\n").slice(0, 2000), page: String(line.page), date: bookedRaw, amount: movement.text },
       extraction: "heuristic",
     };
     if (valueOn) tx.valueOn = valueOn;
@@ -297,12 +390,13 @@ export function parsePdfTable(lines: PdfLine[], ctx: DocumentParseContext = {}, 
   // Printed opening/closing balances, attributed to the sub-account named on their page.
   for (const line of lines) {
     const cells = cellsOf.get(line.line)!;
-    if (isRow(cells) || cells.money.length !== 1) continue;
+    if (isRow(cells)) continue;
     const label = fold(line.text);
     const kind = OPENING_LABEL.test(label) ? "opening" : CLOSING_LABEL.test(label) ? "closing" : undefined;
-    if (!kind) continue;
+    const printed = kind && labelledAmount(line, cells);
+    if (!kind || !printed) continue;
     const target = sectionFor(line.page, sections.size === 1 ? [...sections.values()][0] : undefined);
-    target[kind] ??= signed(cells.money[0]!.reading);
+    target[kind] ??= signed(printed);
   }
 
   const iban = findIban(adminText);

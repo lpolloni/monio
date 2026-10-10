@@ -1,4 +1,5 @@
 import "server-only";
+import { dailyBalances, fillDaily } from "@/domain/analytics/balance-series";
 import { addDaysIso } from "@/domain/analytics/periods";
 import type { EntityKind } from "@/domain/accounts/classification";
 import { computePortfolio } from "@/domain/portfolio/portfolio";
@@ -6,12 +7,13 @@ import { todayIso } from "./dates";
 import type { AccountRecord } from "./finance";
 import { getAccounts, getCategories, getFxTable } from "./queries";
 import { getProfile, requireSession } from "./session";
-import { queryActivity } from "./transactions";
+import { loadAccountMovements, queryActivity } from "./transactions";
 
 export interface AccountDetail {
   account: AccountRecord;
   currency: string;
   value: string | null;
+  /** End-of-day balance on every day of the known history: statement balances walked through the movements. */
   balances: { date: string; balance: string; value: string | null }[];
   transactions: {
     id: string;
@@ -40,18 +42,20 @@ export async function getAccountDetail(accountId: string): Promise<AccountDetail
   const account = accounts.find((a) => a.accountId === accountId);
   if (!account) return null;
   const today = todayIso();
-  const fx = await getFxTable(addDaysIso(today, -430), today);
+  const historyFrom = addDaysIso(today, -430);
+  const fx = await getFxTable(historyFrom, today);
   const currency = profile.primaryCurrency;
   const portfolio = computePortfolio([account], fx, currency, today, { includeBusiness: true });
   const valued = portfolio.accounts[0];
 
-  const [{ data: balances }, activity, categories, { data: liability }, { data: entities }] = await Promise.all([
+  const [{ data: balances }, movements, activity, categories, { data: liability }, { data: entities }] = await Promise.all([
     supabase
       .from("account_balances")
       .select("as_of, balance:balance::text, currency, source")
       .eq("account_id", accountId)
       .order("as_of", { ascending: true })
       .limit(500),
+    account.wallet ? [] : loadAccountMovements(supabase, accountId, account.currency),
     queryActivity(supabase, { accountIds: [accountId], limit: 40, offset: 0 }),
     getCategories(),
     supabase
@@ -62,6 +66,7 @@ export async function getAccountDetail(accountId: string): Promise<AccountDetail
     supabase.from("financial_entities").select("id, name, kind").eq("user_id", userId).order("created_at", { ascending: true }),
   ]);
   const categoryById = new Map(categories.map((c) => [c.id, c.slug]));
+  const snapshots = (balances ?? []).filter((b) => b.currency === account.currency).map((b) => ({ asOf: b.as_of, balance: b.balance }));
 
   const docIds = [...new Set(activity.rows.map((r) => r.documentId).filter((d): d is string => !!d))];
   const { data: documents } = docIds.length
@@ -96,10 +101,10 @@ export async function getAccountDetail(accountId: string): Promise<AccountDetail
     account,
     currency,
     value: valued?.value ?? null,
-    balances: (balances ?? []).map((b) => ({
-      date: b.as_of,
+    balances: fillDaily(dailyBalances(snapshots, movements), historyFrom).map((b) => ({
+      date: b.date,
       balance: b.balance,
-      value: fx.convert({ amount: b.balance, currency: b.currency }, currency, b.as_of)?.amount ?? null,
+      value: fx.convert({ amount: b.balance, currency: account.currency }, currency, b.date)?.amount ?? null,
     })),
     transactions: activity.rows.map((r) => ({
       id: r.id,

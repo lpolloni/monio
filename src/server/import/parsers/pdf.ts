@@ -59,6 +59,8 @@ export interface PdfLine {
   page: number;
   text: string;
   items: PdfTextItem[];
+  /** Baseline in PDF points (grows upwards); absent on lines not read from a page. */
+  y?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +133,7 @@ export async function extractPdfLines(bytes: Uint8Array, recoverVisualText = fal
           previous = f;
           if (text.length > 2000) break;
         }
-        if (text) lines.push({ line: lines.length + 1, page: pageIndex + 1, text: text.slice(0, 2000), items: lineItems });
+        if (text) lines.push({ line: lines.length + 1, page: pageIndex + 1, text: text.slice(0, 2000), items: lineItems, y: group[0]!.y });
       }
     }
     return lines;
@@ -878,9 +880,46 @@ async function parseGenericLines(lines: PdfLine[], ctx: DocumentParseContext): P
       profile: !isCard && columns?.some(c => c.role === "amount") && columns.some(c => c.role === "balance") &&
         account.identifier && account.closingBalance && period && transactions.length === candidates.length && !warnings.list.length
         ? "pdf-column-statement" : isCard ? "pdf-card-lines" : "pdf-lines" },
-    institutionText: headerText,
+    institutionText: issuerText(headerLines, candidates),
     statedPeriod: period,
   };
+}
+
+/**
+ * Header/footer text an issuer may be named in. Lines wrapped around the
+ * movements belong to them ("Sent from N26" under a transfer names the other
+ * bank): anything between the first and last movement of a page is left out,
+ * and so is the run of lines in the same column just above and below them.
+ */
+function issuerText(headerLines: PdfLine[], candidates: Candidate[]): string {
+  const span = new Map<number, { first: number; last: number }>();
+  for (const { line } of candidates) {
+    const s = span.get(line.page);
+    if (!s) span.set(line.page, { first: line.line, last: line.line });
+    else s.last = line.line;
+  }
+  const left = (l: PdfLine) => l.items[0]?.x;
+  const byLine = new Map(headerLines.map((l) => [l.line, l]));
+  const wrapped = new Set<number>();
+  for (const [page, { first, last }] of span) {
+    const column: number[] = [];
+    for (let n = first + 1; n < last; n++) {
+      const l = byLine.get(n);
+      if (!l) continue;
+      wrapped.add(n);
+      if (left(l) !== undefined) column.push(left(l)!);
+    }
+    // The run of same-column lines touching the first/last movement of the page.
+    for (const step of [-1, 1]) {
+      for (let n = step < 0 ? first - 1 : last + 1; ; n += step) {
+        const l = byLine.get(n);
+        const x = l && l.page === page ? left(l) : undefined;
+        if (x === undefined || !column.some((c) => Math.abs(c - x) <= 3)) break;
+        wrapped.add(n);
+      }
+    }
+  }
+  return headerLines.filter((l) => !wrapped.has(l.line)).map((l) => l.text).join("\n");
 }
 
 interface ReadOptions {

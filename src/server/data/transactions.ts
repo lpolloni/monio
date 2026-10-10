@@ -133,6 +133,28 @@ export async function loadTransactionsInRange(db: MonioClient, userId: string, f
 }
 
 
+/** Booked movements of one account that change its balance: posted, not duplicates, in the account currency. */
+export async function loadAccountMovements(db: MonioClient, accountId: string, currency: string, max = 20_000): Promise<{ bookedOn: string; amount: string }[]> {
+  const out: { bookedOn: string; amount: string }[] = [];
+  for (let offset = 0; offset < max; offset += 1000) {
+    const { data, error } = await db
+      .from("transactions")
+      .select("booked_on, amount:amount::text")
+      .eq("account_id", accountId)
+      .eq("currency", currency)
+      .eq("status", "posted")
+      .is("duplicate_of", null)
+      .order("booked_on", { ascending: false })
+      .order("id", { ascending: true })
+      .range(offset, offset + 999);
+    if (error) throw error;
+    const rows = data ?? [];
+    out.push(...rows.map((r) => ({ bookedOn: r.booked_on, amount: r.amount })));
+    if (rows.length < 1000) break;
+  }
+  return out;
+}
+
 export function toFlow(
   tx: TransactionRow,
   accounts: Map<string, AccountRecord>,

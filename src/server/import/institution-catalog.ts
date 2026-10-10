@@ -89,7 +89,9 @@ export const INSTITUTIONS: readonly InstitutionDefinition[] = [
     kind: "bank",
     brandColor: "#004481",
     aliases: ["bbva italia"],
-    weakAliases: ["bbva"],
+    weakAliases: ["bbva", "banco bilbao vizcaya argentaria"],
+    bic: "BBVAITMM",
+    ibanBankCodes: ["IT:03576"],
     defaultCurrency: "EUR",
   },
   {
@@ -342,6 +344,28 @@ export function findInstitutionByIban(iban: string): InstitutionMatch | undefine
   const code = `${country}:${compact.slice(range[0], range[1])}`;
   const def = INSTITUTIONS.find((d) => d.ibanBankCodes?.includes(code));
   return def ? { slug: def.slug, confidence: 0.75, evidence: `IBAN bank code ${code}` } : undefined;
+}
+
+/**
+ * Finds the statement's own BIC. Only a labelled code counts ("BIC: BBVAITMMXXX",
+ * "SWIFT/BIC NTSBDEB1XXX"): any eight capital letters would match otherwise.
+ */
+export function findBic(text: string): string | undefined {
+  const m = /\b(?:BIC|SWIFT)(?:\s*\/\s*(?:BIC|SWIFT))?(?:\s+code)?\s*:?\s*([A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)(?![A-Za-z0-9])/.exec(text.slice(0, MAX_MATCH_TEXT));
+  return m?.[1];
+}
+
+/** Suggests the institution owning a BIC: bank and country code (first six characters) must match. */
+export function findInstitutionByBic(bic: string): InstitutionMatch | undefined {
+  const code = bic.trim().toUpperCase();
+  const def = INSTITUTIONS.find((d) => d.bic && d.bic.slice(0, 6) === code.slice(0, 6));
+  return def ? { slug: def.slug, confidence: 0.9, evidence: `BIC ${code}` } : undefined;
+}
+
+/** True when a BIC belongs to another bank than the institution (different four-letter bank code). */
+export function bicContradicts(bic: string, slug: string): boolean {
+  const own = getInstitution(slug)?.bic;
+  return !!own && own.slice(0, 4) !== bic.trim().toUpperCase().slice(0, 4);
 }
 
 /** Validates an IBAN checksum (ISO 13616 mod-97). */

@@ -1,8 +1,9 @@
 "use client";
 
 import { ArrowLeftRight, Copy, CreditCard } from "lucide-react";
-import { useTranslations } from "use-intl";
+import { useLocale, useTranslations } from "use-intl";
 import { Badge } from "@/components/ui/primitives";
+import { formatDate } from "@/lib/format";
 import { cn, prettyDescription } from "@/lib/utils";
 import { CategoryIcon } from "./category-icon";
 import { Money } from "./money";
@@ -24,9 +25,13 @@ export interface TransactionItemData {
   institutionName: string | null;
 }
 
-/** One transaction row: who, what, where — and the amount in its original currency. */
-export function TransactionItem({ tx, onSelect, compact = false }: { tx: TransactionItemData; onSelect?: () => void; compact?: boolean }) {
+/**
+ * One transaction row: who, what, where — and the amount in its original currency.
+ * `showDate` is for lists that are not already grouped under a day heading.
+ */
+export function TransactionItem({ tx, onSelect, compact = false, showDate = false }: { tx: TransactionItemData; onSelect?: () => void; compact?: boolean; showDate?: boolean }) {
   const t = useTranslations();
+  const locale = useLocale();
   const isTransfer = tx.classification !== "regular";
   const title = tx.merchant ?? prettyDescription(tx.description);
   const categoryLabel = tx.categorySlug
@@ -60,6 +65,7 @@ export function TransactionItem({ tx, onSelect, compact = false }: { tx: Transac
           ) : null}
         </span>
         <span className="mt-0.5 block truncate text-[12.5px] text-fg-subtle">
+          {showDate ? <><time dateTime={tx.bookedOn}>{formatDate(tx.bookedOn, locale, "medium")}</time> · </> : null}
           {isTransfer
             ? tx.classification === "card_payment"
               ? t("activity.cardPayment")
