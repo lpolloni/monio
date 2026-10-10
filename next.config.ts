@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
-  allowedDevOrigins: ['192.168.68.104'],
+  allowedDevOrigins: ['0.0.0.0'],
   experimental: {
     // Uploads pass through src/proxy.ts; allow the import limit (bucket max 15 MB) plus multipart overhead.
     proxyClientMaxBodySize: "16mb",

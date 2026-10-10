@@ -59,3 +59,14 @@ If the Docker daemon is not running in a root VM: `dockerd > /tmp/dockerd.log 2>
   `AI_ALLOW_CLOUD_DOCUMENTS=true` + per-user consent in Settings.
 - Blockchain: `BLOCKCHAIN_PROVIDER=live` (Esplora/mempool.space, public EVM RPC, Blockscout).
 - Rates: `EXCHANGE_RATE_PROVIDER=live` (Frankfurter + CoinGecko), then `npm run worker -- rates`.
+
+## PWA installation
+
+Use `npm run build` then `npm start` to verify the service worker (registered only in production builds).
+Open Monio on HTTPS or `http://localhost:3000`, then Settings → Install Monio.
+Chromium offers an install button when eligible; Safari on iPhone/iPad uses Share → Add to Home Screen.
+Plain HTTP LAN IP addresses are not secure contexts and cannot install the service worker; use trusted HTTPS for mobile LAN testing.
+The app uses standalone display, existing regular/maskable/Apple icons, and a stable manifest ID.
+Only public static assets and a generic pt/en/it offline page enter Cache Storage. Pages, API responses,
+financial data and authentication responses are never cached by the service worker. Offline navigation
+shows a reconnect screen; balances/imports still require internet. Existing tabs may need a reload after an update.
