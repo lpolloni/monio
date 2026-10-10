@@ -9,7 +9,7 @@
 import { CATEGORY_CATALOG } from "@/domain/categories/catalog";
 import type { WireStatementLine, WireTransaction } from "./schemas";
 
-export const PROMPT_VERSION = "2026-10-1";
+export const PROMPT_VERSION = "2026-10-2";
 export const DATA_OPEN = "<<<DATA";
 export const DATA_CLOSE = "DATA>>>";
 
@@ -33,6 +33,7 @@ For every transaction in the payload return exactly one item with these keys:
 - "confidence": number from 0 to 1
 Direction "in" = money received: use an income or transfer category ("refunds" for money returned by a merchant).
 Direction "out" = money spent: use an expense or transfer category.
+Choose the most specific supported category from merchant and payment purpose, using Portuguese, Italian and English descriptions. Payment processors (PIX, TED, SEPA, PayPal, Mercado Pago) alone do not identify a category or prove an internal transfer. Investment principal and credit card bill payments are transfers; investment earnings are income. Distinguish groceries from restaurants, telecom from utilities, subscriptions from one-off shopping, and refunds from salary. Use null when the counterparty or purpose provides insufficient evidence; do not fill gaps with other_expense/other_income just to classify everything.
 Never output amounts, dates or any other key. Never add transactions.
 Allowed categories:
 ${CATEGORY_LIST}

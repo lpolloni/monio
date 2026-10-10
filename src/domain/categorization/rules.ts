@@ -75,8 +75,7 @@ export function ruleFromConfirmation(description: string, merchant: string | nul
   const pattern = normalizeDescription(source)
     .split(" ")
     .filter((t) => t.length > 1 && !/^\d+$/.test(t))
-    .slice(0, 3)
     .join(" ");
-  if (pattern.length < 3) return null;
+  if (pattern.length < 3 || pattern.length > 120) return null;
   return { matchType: "contains", pattern };
 }

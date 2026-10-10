@@ -1,4 +1,5 @@
 import { matchRule, sortRules, type CategorizationRule } from "@/domain/categorization/rules";
+import { recognizeCategory } from "@/domain/categorization/recognize";
 import { isCategorySlug } from "@/domain/categories/catalog";
 import { normalizeDescription } from "@/domain/transactions/normalize";
 import type { AiService } from "../ai";
@@ -85,7 +86,11 @@ export async function categorizeBatch(
         ruleId: match.ruleId,
       });
     } else {
-      pending.push(item);
+      const recognized = recognizeCategory(item.description, item.amount);
+      const categoryId = recognized && systemCategoryIds.get(recognized.categorySlug);
+      if (recognized && categoryId) {
+        results.set(item.key, { ...recognized, categoryId, source: "rule" });
+      } else pending.push(item);
     }
   }
 
@@ -96,7 +101,7 @@ export async function categorizeBatch(
     // Ask once per distinct description pattern.
     const byPattern = new Map<string, CategorizeInput>();
     for (const p of pending) {
-      const k = `${normalizeDescription(p.description)}|${p.amount.startsWith("-") ? "out" : "in"}`;
+      const k = JSON.stringify([normalizeDescription(p.description), p.amount.trim().startsWith("-") ? "out" : "in", p.currency, p.accountType, p.country]);
       if (!byPattern.has(k)) byPattern.set(k, p);
     }
     const unique = [...byPattern.entries()];
@@ -123,7 +128,7 @@ export async function categorizeBatch(
         if (k) byKey.set(k, interp);
       }
       for (const p of pending) {
-        const k = `${normalizeDescription(p.description)}|${p.amount.startsWith("-") ? "out" : "in"}`;
+        const k = JSON.stringify([normalizeDescription(p.description), p.amount.trim().startsWith("-") ? "out" : "in", p.currency, p.accountType, p.country]);
         const interp = byKey.get(k);
         if (!interp || !interp.category || !isCategorySlug(interp.category)) continue;
         if (interp.confidence < AI_APPLY_THRESHOLD) continue;
@@ -143,8 +148,8 @@ export async function categorizeBatch(
         const categoryId = systemCategoryIds.get(interp.category);
         const sample = byPattern.get(k);
         if (!categoryId || !sample) continue;
-        const pattern = normalizeDescription(sample.description).split(" ").filter((t) => t.length > 1).slice(0, 3).join(" ");
-        if (pattern.length < 3) continue;
+        const pattern = normalizeDescription(sample.description);
+        if (pattern.length < 3 || pattern.length > 120) continue;
         learned.push({ pattern, merchant: interp.merchant, categoryId, direction: sample.amount.startsWith("-") ? "out" : "in" });
       }
     }
