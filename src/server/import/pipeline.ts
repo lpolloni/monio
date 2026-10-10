@@ -721,9 +721,9 @@ async function processJob(
     if (error) throw error;
     institution = data;
   }
-  // A source-verified issuer outside our catalog becomes a private institution,
+  // An issuer outside our catalog that the document itself names becomes a private institution,
   // with a stable key across monthly imports. RLS still scopes every operation.
-  if (!institution && !hintSlug && (statement.profile === "pdf-with-document-ai" || statement.profile === "pdf-table-learned") && statement.institution?.name) {
+  if (!institution && !hintSlug && statement.institution?.name && statement.institution.confidence >= 0.6) {
     const name = statement.institution.name.slice(0, 120);
     const slug = `import-${hashIdentifier(fold(name).replace(/\s+/g, " ")).slice(0, 40)}`;
     const lookup = () => db.from("institutions").select("id, slug, name, country").eq("owner_id", userId).eq("slug", slug).maybeSingle();

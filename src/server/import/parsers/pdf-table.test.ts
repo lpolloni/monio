@@ -181,7 +181,7 @@ describe("rows vertically centred on a wrapped description", () => {
 
   it("never takes a bank named in a movement for the issuer of the statement", async () => {
     const st = await parseDocument({ bytes: centredPdf(), filename: "estratto.pdf" });
-    expect(st.institution).toBeUndefined();
+    expect(st.institution).toEqual({ name: "Banca Fittizia Aurora S.p.A.", confidence: 0.6, evidence: "Issuer named in the document header" });
   });
 
   it("lets the statement's own BIC name the issuer", async () => {
@@ -229,10 +229,14 @@ describe("learning the table of an unknown PDF layout", () => {
     };
   }
 
-  it("is not readable before it is learned", async () => {
+  it("is unknown to the header-named readers, and read by structure inference because its balances prove it", async () => {
     const lines = await extractPdfLines(september);
     expect(parsePdfTable(lines)).toBeUndefined();
-    expect((await parsePdfLines(lines)).statement.accounts[0]!.transactions).toHaveLength(0);
+    const st = (await parsePdfLines(lines)).statement;
+    expect(st.profile).toBe("pdf-inferred");
+    expect(st.accounts[0]!.transactions.map((t) => [t.bookedOn, t.amount, t.description])).toEqual([
+      ["2026-09-02", "-10", "NEGOZIO FITTIZIO"], ["2026-09-09", "500", "STIPENDIO FITTIZIO"], ["2026-09-12", "-90", "AFFITTO FITTIZIO"],
+    ]);
   });
 
   it("derives the columns from verified movements and replays them, including one the model missed", async () => {
@@ -256,25 +260,27 @@ describe("learning the table of an unknown PDF layout", () => {
     expect(learnPdfTable(unproven, interpretation([[4, "2026-09-02", "-10"], [5, "2026-09-09", "500"]]))).toBeUndefined();
   });
 
-  it("asks the model once, then reads the next statement of that layout from memory", async () => {
+  it("asks the model once for a statement nothing in the document proves, then reads the next one from memory", async () => {
+    // No balance proves this statement, and one description holds a second figure:
+    // structure inference refuses to choose, so the model is asked, once.
+    const unexplained = buildPdf([["Cassa Fittizia Boreale", "01/09/2026 - 30/09/2026 EUR", head,
+      line("02/09/2026", "NEGOZIO FITTIZIO 2,50% SCONTO", "-10,00"), line("09/09/2026", "STIPENDIO FITTIZIO", "+500,00"), line("12/09/2026", "AFFITTO FITTIZIO", "-90,00")]]);
     const layoutMemory = memory();
+    const movement = (n: number, date: string, description: string, amount: string) => ({ line: n, date, dateLine: n, description, descriptionLines: [n], amount, amountLine: n, directionLine: n });
     const documentAssist = vi.fn<PdfDocumentAssist>(async (source) => ({ skippedLines: [], batches: [{
       lines: source, primaryLines: source.map((l) => l.line),
       proposal: { institution: { name: "Cassa Fittizia Boreale", line: 1 }, period: { start: "2026-09-01", startLine: 2, end: "2026-09-30", endLine: 2 }, unparsedLines: [],
         accounts: [{ key: "account-1", type: "checking", currency: "EUR", currencyLine: 2, identifier: null, identifierLine: null, openingBalance: null, closingBalance: null,
-          transactions: [
-            { line: 5, date: "2026-09-02", dateLine: 5, description: "NEGOZIO FITTIZIO", descriptionLines: [5], amount: "-10.00", amountLine: 5, directionLine: 5 },
-            { line: 6, date: "2026-09-09", dateLine: 6, description: "STIPENDIO FITTIZIO", descriptionLines: [6], amount: "500.00", amountLine: 6, directionLine: 6 },
-          ] }] },
+          transactions: [movement(4, "2026-09-02", "NEGOZIO FITTIZIO 2,50% SCONTO", "-10.00"), movement(5, "2026-09-09", "STIPENDIO FITTIZIO", "500.00"), movement(6, "2026-09-12", "AFFITTO FITTIZIO", "-90.00")] }] },
     }] }));
-    const first = await parseDocument({ bytes: september, filename: "settembre.pdf" }, { documentAssist, layoutMemory });
+    const first = await parseDocument({ bytes: unexplained, filename: "settembre.pdf" }, { documentAssist, layoutMemory });
     expect(documentAssist).toHaveBeenCalledOnce();
     expect(layoutMemory.saved.size).toBe(1);
     expect([...layoutMemory.saved.values()][0]).toMatchObject({ kind: "pdf-table", issuer: "Cassa Fittizia Boreale" });
     expect(first.institution?.name).toBe("Cassa Fittizia Boreale");
-    expect(first.accounts[0]!.transactions).toHaveLength(3);
+    expect(first.accounts[0]!.transactions.map((t) => t.amount)).toEqual(["-10", "500", "-90"]);
 
-    const october = statement([line("03/10/2026", "FARMACIA FITTIZIA", "-25,50"), line("09/10/2026", "STIPENDIO FITTIZIO", "+500,00")], "500,00", "974,50")
+    const october = statement([line("03/10/2026", "FARMACIA FITTIZIA", "-25,50"), line("09/10/2026", "STIPENDIO FITTIZIO", "+500,00")], "500,00", "974,50");
     const second = await parseDocument({ bytes: october, filename: "ottobre.pdf" }, { documentAssist, layoutMemory });
     expect(documentAssist).toHaveBeenCalledOnce();
     expect(second.profile).toBe("pdf-table-learned");

@@ -73,7 +73,8 @@ describe("PDF deterministic line parser", () => {
     expect(st.format).toBe("pdf");
     expect(st.profile).toBe("pdf-lines");
     // "REVOLUT" only appears in a transaction description: never used for detection.
-    expect(st.institution).toBeUndefined();
+    // The issuer the header names is outside the catalog: it is kept by name.
+    expect(st.institution).toEqual({ name: "Banco Exemplo Fictício S.A.", confidence: 0.6, evidence: "Issuer named in the document header" });
     expect(st.period).toEqual({ start: "2026-03-01", end: "2026-03-31" });
     const account = st.accounts[0]!;
     expect(account).toMatchObject({

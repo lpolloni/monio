@@ -7,7 +7,7 @@ import { mergeDocumentInterpretation, validateDocumentInterpretation, type PdfDo
 const texts = [
   "Banco Fictício Aurora", "Conta 12345-6",
   "Período 01/09/2026 a 30/09/2026 BRL",
-  "Saldo inicial 100,00", "02/09/2026 Saídas",
+  "Saldo inicial 100,00", "Saídas em 02/09/2026",
   "Pagamento LOJA FICTICIA", "10,00", "Saldo final 90,00",
 ];
 const lines: DocumentLine[] = texts.map((text, i) => ({ line: i + 1, page: 1, text, items: [] }));

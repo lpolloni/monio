@@ -95,7 +95,7 @@ Follow-up: the supplied password works with Supavisor at port `5432`, username `
 
 1. **Most bank profiles were built from public layout knowledge and fictional fixtures.** Nubank personal-account PDF parsing has now been checked against two real monthly exports locally, and the BBVA Italia quarterly PDF against one real export (22 movements, balanced, issuer from the statement's BIC); other Nubank layouts, Nubank PJ, XP, Santander, BBVA CSV/XLSX, N26, Revolut and MPS still need real-export validation. Personal documents are never committed.
 2. **External providers were not reachable from this sandbox.** That covers live blockchain (Esplora, EVM RPC, Blockscout), market data (Frankfurter, CoinGecko) and AI (oMLX, cloud). Their adapters are tested with injected `fetch` only; DEV uses mock providers.
-3. **Fully scanned PDFs (images) remain unsupported by automatic import.** They produce an "unsupported layout" warning.
+3. **PDF layouts nobody described are read by structure inference (`pdf-inferred`) when the document's own balances or totals prove the reading**; what it cannot prove it refuses (description printed above its dated line without a header row, unsigned amounts with no balance or totals), and the model fallback applies. **Fully scanned PDFs (images) remain unsupported by automatic import.** They produce an "unsupported layout" warning.
 4. Loan instalments are counted as expenses. Principal and interest are not split.
 5. A long import running in a route handler uses the user's token. If it expires mid-job, the job stays queued and `npm run worker -- jobs` reclaims it.
 6. Parser warning messages may quote a short fragment of a document line (only counts are persisted in job stats; full documents are never logged).

@@ -346,6 +346,27 @@ export function findInstitutionByIban(iban: string): InstitutionMatch | undefine
   return def ? { slug: def.slug, confidence: 0.75, evidence: `IBAN bank code ${code}` } : undefined;
 }
 
+const ISSUER_WORD = /(?<![a-z0-9])(banco|banca|bank|banque|caixa|cassa|caja|credito|credit|sparkasse|volksbank|financeira|finanziaria|financial|finance|pagamentos|payments|corretora|investimentos|cooperativa|savings|poste)(?![a-z0-9])/;
+const NOT_A_NAME = /(?<![a-z0-9])(saldo|conta|conto|account|extrato|estratto|statement|cliente|customer|titular|titolare|iban|bic|swift|limite|cartao|carta|card|fatura|total|totale)(?![a-z0-9])/;
+
+/**
+ * Names the issuer of a statement no catalog entry matches: the first short
+ * header phrase that reads like an institution ("Banco Cedro", "Stella Alpina
+ * Credito", "Banca Fittizia Aurora S.p.A." before " - Estratto conto"). Callers
+ * must not pass transaction text.
+ */
+export function findIssuerName(text: string): string | undefined {
+  for (const line of text.slice(0, MAX_MATCH_TEXT).split("\n")) {
+    for (const part of line.split(/\s+[-–—|·•]\s+|[,;:]\s+/)) {
+      const name = part.trim();
+      const folded = fold(name);
+      if (name.length < 5 || name.length > 50 || /\d/.test(name) || name.split(/\s+/).length < 2 || name.split(/\s+/).length > 6) continue;
+      if (ISSUER_WORD.test(folded) && !NOT_A_NAME.test(folded)) return name;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Finds the statement's own BIC. Only a labelled code counts ("BIC: BBVAITMMXXX",
  * "SWIFT/BIC NTSBDEB1XXX"): any eight capital letters would match otherwise.

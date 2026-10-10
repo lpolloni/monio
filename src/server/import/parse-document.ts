@@ -17,6 +17,7 @@ import {
   findInstitutionByBic,
   findInstitutionByIban,
   findInstitutionByText,
+  findIssuerName,
   getInstitution,
   type InstitutionMatch,
 } from "./institution-catalog";
@@ -217,6 +218,8 @@ function hint(match: InstitutionMatch, confidence = match.confidence, name?: str
  * descriptions) > IBAN bank code > file name (low confidence). A profile whose
  * header is shared by many banks yields to a different institution named in
  * the document text, and a name contradicted by the statement's BIC is dropped.
+ * A PDF from a bank outside the catalog is attributed to the issuer its header
+ * names, so that it becomes an institution of its own instead of an unknown one.
  */
 function resolveInstitution(output: ParserOutput, statement: ParsedStatement, filename?: string): InstitutionHint | undefined {
   if (output.documentInstitution && !output.profileInstitution) {
@@ -244,6 +247,8 @@ function resolveInstitution(output: ParserOutput, statement: ParsedStatement, fi
   if (statement.format === "ofx" && output.institutionText) {
     return { name: output.institutionText.slice(0, 100), confidence: 0.3, evidence: "OFX ORG (not in catalog)" };
   }
+  const issuer = statement.format === "pdf" && output.institutionText ? findIssuerName(output.institutionText) : undefined;
+  if (issuer) return { name: issuer, confidence: 0.6, evidence: "Issuer named in the document header" };
   if (filename) {
     const byName = findInstitutionByText(filename.replace(/[_\-.]+/g, " "));
     if (byName) return hint({ ...byName, evidence: `File name mentions it (${byName.evidence})` }, Math.min(0.3, byName.confidence));

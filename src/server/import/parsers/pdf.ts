@@ -26,6 +26,7 @@ import { isKnownCurrency, normalizeCurrencyCode } from "@/domain/money/currencie
 import { dec, toPlain } from "@/domain/money/decimal";
 import { findIban, findInstitutionByText, getInstitution } from "../institution-catalog";
 import { mergeDocumentInterpretation, needsDocumentAi, validateDocumentInterpretation } from "./document-ai";
+import { parsePdfStructure } from "./pdf-structure";
 import { learnPdfTable, parsePdfTable, PDF_TABLE_LEARNED_PROFILE } from "./pdf-table";
 import { parseSignedLedger } from "./signed-ledger";
 import { WarningSink } from "./warnings";
@@ -696,13 +697,33 @@ export async function parsePdfLines(lines: PdfLine[], ctx: DocumentParseContext 
   if (reconciled) return reconciled;
   // A header-named table read without leftovers wins over the line parser
   // whenever that one left lines unread or found fewer movements.
+  const count = (o: ParserOutput) => o.statement.accounts.reduce((n, a) => n + a.transactions.length, 0);
   const table = parsePdfTable(lines, ctx);
+  let known: ParserOutput | undefined;
   if (table && !table.statement.warnings.length) {
     const byLine = await parseGenericLines(lines, { ...ctx, aiAssist: undefined });
-    const count = (o: ParserOutput) => o.statement.accounts.reduce((n, a) => n + a.transactions.length, 0);
-    return byLine.statement.warnings.some((w) => w.code === "row_unreadable") || count(byLine) < count(table) ? table : byLine;
+    known = byLine.statement.warnings.some((w) => w.code === "row_unreadable") || count(byLine) < count(table) ? table : byLine;
   }
-  return parseGenericLines(lines, ctx);
+  known ??= await parseGenericLines(lines, { ...ctx, aiAssist: undefined });
+  if (readsCleanly(known)) return known;
+  // The layout fits no known shape: infer its structure, and trust the reading
+  // when the document's own balances and totals prove it, or when it states
+  // every column and sign and the known readers found less.
+  const inferred = parsePdfStructure(lines, ctx);
+  if (inferred && (inferred.verified || (!inferred.output.statement.warnings.length && count(inferred.output) > count(known)))) return inferred.output;
+  return ctx.aiAssist && known.statement.profile !== "pdf-table" ? parseGenericLines(lines, ctx) : known;
+}
+
+/** Nothing left unread, at least one movement, and printed balances (when both are there) that add up. */
+function readsCleanly(output: ParserOutput): boolean {
+  const st = output.statement;
+  if (st.warnings.some((w) => w.code !== "row_skipped")) return false;
+  const moved = st.accounts.filter((a) => a.transactions.length);
+  return moved.length > 0 && moved.every((a) => {
+    if (!a.openingBalance || !a.closingBalance) return true;
+    const booked = a.transactions.filter((t) => !t.pending && (!a.currency || t.currency === a.currency));
+    return booked.reduce((sum, t) => sum.plus(t.amount), dec(a.openingBalance.amount)).equals(a.closingBalance.amount);
+  });
 }
 
 /** Line-by-line reader: a date at the start of the line and an amount at its end. */
