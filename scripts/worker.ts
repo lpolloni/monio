@@ -14,6 +14,7 @@ import { purgeOrphanedDocuments } from "@/server/maintenance/purge";
 import { addDaysIso } from "@/domain/analytics/periods";
 import { detectWatchTarget } from "@/domain/crypto/addresses";
 import { describeError, isStaleProcessing, runImportJob } from "@/server/import/pipeline";
+import { ensureFiatRates } from "@/server/market/refresh";
 import { getAiServiceFor, getBlockchainService, getMarketService } from "@/server/runtime";
 import { createAdminClient } from "@/server/supabase/admin";
 import { dbNumeric } from "@/server/supabase/numeric";
@@ -49,7 +50,7 @@ async function processJobs(admin: Admin): Promise<boolean> {
       consent.set(job.user_id, profile?.ai_cloud_consent === true);
     }
     const ai = getAiServiceFor({ aiCloudConsent: consent.get(job.user_id) === true });
-    const outcome = await runImportJob(admin, job.user_id, job.id, { today: today(), ai });
+    const outcome = await runImportJob(admin, job.user_id, job.id, { today: today(), ai, ensureRates: (currencies, from) => ensureFiatRates(currencies, from, today()) });
     counts[outcome.status]++;
   }
   console.log(

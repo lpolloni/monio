@@ -2,6 +2,7 @@ import { after, type NextRequest } from "next/server";
 import { getServerEnv } from "@/server/env";
 import { receiveUpload, UploadRejectedError } from "@/server/import/intake";
 import { describeError, runImportJob } from "@/server/import/pipeline";
+import { ensureFiatRates } from "@/server/market/refresh";
 import { getAiServiceFor } from "@/server/runtime";
 import { createClient, createClientForAccessToken } from "@/server/supabase/server";
 
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     const today = new Date().toISOString().slice(0, 10);
     after(async () => {
       try {
-        await runImportJob(createClientForAccessToken(accessToken), userId, result.jobId, { bytes, today, ai });
+        await runImportJob(createClientForAccessToken(accessToken), userId, result.jobId, { bytes, today, ai, ensureRates: (currencies, from) => ensureFiatRates(currencies, from, today) });
       } catch (error) {
         // runImportJob records its own failures; this only guards unexpected crashes.
         console.error(`[import] background job ${result.jobId} crashed: ${describeError(error)}`);

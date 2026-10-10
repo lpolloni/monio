@@ -18,6 +18,7 @@
  */
 import { inferDateOrder, parseDate, type DateOrder } from "@/domain/import/parse-date";
 import type { ParsedAccount, ParsedTransaction, ParseWarning } from "@/domain/import/types";
+import { normalizeCurrencyCode } from "@/domain/money/currencies";
 import { D, dec, toPlain, type DecimalValue } from "@/domain/money/decimal";
 import { findIban, findInstitutionByText, findIssuerName } from "../institution-catalog";
 import { roleOfHeader } from "../profiles/generic";
@@ -33,29 +34,46 @@ const LEADING_DATE = /^(\d{4}-\d{2}-\d{2}|\d{1,2}[/.\-]\d{1,2}[/.\-](?:\d{4}|\d{
 /** "05 Mar", "5 de março de 2026", "05-mag-26": a date whose month is written out. */
 const NAMED_DATE = /^(\d{1,2})(?:\s+de)?[\s\-/.]+([a-zç]{3,9})\.?(?:(?:\s+de)?[\s\-/.]+(\d{4}|\d{2}))?$/;
 const DAY = /^\d{1,2}$/;
-const PLACEHOLDER = /^[—–\-_.·•*=]+$/;
-const CURRENCY_TAIL = /\s*\(?(?:EUR|BRL|USD|GBP|CHF|R\$|€|£|\$)\)?$/;
+const PLACEHOLDER = /^[—–\-_.·•*=|/]+$/;
+/** Marks that set apart the parts of one fragment: "08-03 | Pagamento POS", "Accrediti 10,00 | Addebiti 5,00". */
+const SEPARATOR = /\s*[|•·]\s*/;
 /** "2026-07", "07/2026", "luglio 2026": a heading that dates the day numbers under it. */
 const YEAR_MONTH = /^(?:(\d{4})[-/.](\d{1,2})|(\d{1,2})[-/.](\d{4})|([a-zç]{3,10})\.?(?:\s+de)?[\s/\-.]+(\d{4}))$/;
-/** A line that only carries a reference code: "ID 220915", "Rif: 377519", "Protocolo 760397". */
-const REFERENCE = /^(?:id|ref|rif|riferimento|referencia|reference|protocolo|protocollo|nsu|doc|documento|aut|autenticacao|codice|codigo|code|cro|trn|n|no|nr|num|numero)\s*[.:#º°]*\s*[a-z0-9][a-z0-9\-/.]*\d[a-z0-9\-/.]*$/;
+/** The same, anywhere in a line: the month a statement covers when it gives no pair of dates. */
+const MONTH_IN_TEXT = /(?<![a-z])([a-zç]{3,10})\.?\s+(?:de\s+)?((?:19|20)\d{2})(?!\d)/;
+/** A reference code: "ID 220915", "Rif: 377519", "Protocolo 760397", or its label alone. */
+const REFERENCE_LABELS = ["id", "ref", "rif", "riferimento", "referencia", "reference", "protocolo", "protocollo", "nsu", "doc", "documento", "aut", "autenticacao", "codice", "codigo", "code", "cro", "trn", "nr", "num", "numero"];
+const REFERENCE = new RegExp(`^(?:${REFERENCE_LABELS.join("|")}|n|no)\\s*[.:#º°]*\\s*[a-z0-9][a-z0-9\\-/.]*\\d[a-z0-9\\-/.]*$`);
 
-const DEBIT_WORDS = new Set(["debito", "debitos", "debit", "debits", "dare", "addebito", "addebiti", "uscita", "uscite", "saida", "saidas", "withdrawal", "withdrawals", "soll", "dr", "db", "d"]);
-const CREDIT_WORDS = new Set(["credito", "creditos", "credit", "credits", "avere", "accredito", "accrediti", "entrata", "entrate", "entrada", "entradas", "deposit", "deposits", "haben", "cr", "c"]);
+const DEBIT_WORDS = new Set(["debito", "debitos", "debit", "debits", "dare", "addebito", "addebiti", "uscita", "uscite", "saida", "saidas", "withdrawal", "withdrawals", "soll", "debe", "cargo", "dr", "db", "d"]);
+const CREDIT_WORDS = new Set(["credito", "creditos", "credit", "credits", "avere", "accredito", "accrediti", "entrata", "entrate", "entrada", "entradas", "deposit", "deposits", "haben", "haber", "abono", "cr", "c"]);
 /** A labelled account number: "Conta 12345-6", "Conto n. 000123456", "Account number: 12-345-678". */
-const ACCOUNT_NUMBER = /(?<![a-z])(?:conta(?: corrente)?|conto(?: corrente)?|account(?: number| no)?|konto(?:nummer)?|c\/c)\s*(?:n[.ºo°]*\s*)?[:#]?\s*(\d[\d.\-/]{2,24}\d)(?![\d.,]\d)/;
-/** Stand-in x for amounts split out of a fragment that holds a whole row. */
+const ACCOUNT_NUMBER = /(?<![a-z])(?:conta(?: corrente| pagamento)?|conto(?: corrente)?|cuenta|account(?: number| no)?|konto(?:nummer)?|c\/c)\s*(?:n[.ºo°]*\s*)?[:#]?\s*(\d[\d.\-/]{2,24}\d)(?![\d.,]\d)/;
+/** Stand-in x for amounts split out of a fragment that holds more than the amount. */
 const VIRTUAL_COLUMN = 1_000_000;
 const LOOKS_AMOUNT = /\d[.,]\d{2}(?!\d)/;
 const LOOKS_DATE = /\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}|\d{4}-\d{2}-\d{2}/;
 
+const CURRENCY_MARK = String.raw`R\$|US\$|U\$S|€|£|₲|¥|\$|Gs\.?(?![a-z])|[A-Z]{3}(?![A-Za-z])`;
+/** Whole units with thousands groups, for currencies printed without cents: "+1.550.000 Gs.", "PYG 7.350". */
+const WHOLE_UNITS = new RegExp(String.raw`^\(?([-+−])?\s*(${CURRENCY_MARK})?\s*([-+−])?\s*(\d{1,3}(?:[.,]\d{3})+)\s*(${CURRENCY_MARK})?\)?$`);
+/** An amount inside running text, with the sign, currency and D/C marker that belong to it. */
+const AMOUNT_IN_TEXT = new RegExp(
+  String.raw`(?<![\p{L}\p{N}.,/])(?:[-+−]\s?)?(?:(?:R\$|US\$|U\$S|€|£|₲|\$)\s?)?(?:[-+−]\s?)?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?(?![\d%])(?![.,/\-]\d)(?:\s?\(?(?:${CURRENCY_MARK})\)?)?(?:\s(?:D|C|DR|CR|DB)(?![\p{L}\p{N}]))?`,
+  "gu",
+);
+
 type FactKind = "opening" | "closing" | "in" | "out";
-const FACT_LABELS: [FactKind, RegExp][] = [
-  ["opening", /^(saldo (anterior|inicial|iniziale|inizio|precedente|di apertura|de abertura)|iniziale|inicial|opening balance|previous balance|balance brought forward|anfangssaldo|alter kontostand|solde (initial|precedent))\b/],
-  ["closing", /^(saldo (final|finale|fine|di chiusura|atual|attuale|contabile finale)|finale?|closing balance|new balance|ending balance|balance carried forward|endsaldo|neuer kontostand|solde final|nouveau solde|(il tuo )?nuovo saldo|novo saldo)\b/],
-  ["in", /^(entradas|entrate|creditos|accrediti|total (de |das? )?(entradas|creditos)|totale (delle )?(entrate|accrediti|avere)|money in|paid in|total credits|total deposits|deposits|einzahlungen)\b/],
-  ["out", /^(saidas|uscite|debitos|addebiti|total (de |das? )?(saidas|debitos)|totale (delle )?(uscite|addebiti|dare)|money out|paid out|total debits|total withdrawals|withdrawals|auszahlungen)\b/],
-];
+const BALANCE_NOUNS = new Set(["saldo", "saldi", "balance", "solde", "kontostand"]);
+const OPENING_WORDS = new Set(["anterior", "inicial", "iniziale", "inizio", "precedente", "apertura", "abertura", "opening", "previous", "brought", "initial", "precedent", "alter", "starting", "beginning"]);
+const CLOSING_WORDS = new Set(["final", "finale", "fine", "conclusivo", "chiusura", "fechamento", "cierre", "atual", "actual", "attuale", "disponivel", "disponible", "disponibile", "closing", "ending", "new", "novo", "nuovo", "nuevo", "carried", "neuer"]);
+const OPENING_LEADS = new Set(["apertura", "abertura", "iniziale", "inicial", "opening", "anfangssaldo"]);
+const CLOSING_LEADS = new Set(["cierre", "chiusura", "fechamento", "finale", "final", "closing", "endsaldo", "disponivel", "disponible", "disponibile"]);
+const TOTAL_WORDS = new Set(["total", "totale", "totali", "totais", "totales", "somma", "soma", "suma", "sum"]);
+const FILLER_WORDS = new Set(["de", "da", "das", "do", "dos", "di", "del", "della", "delle", "degli", "of", "in", "en", "em"]);
+/** Totals are named in the plural; the singular next to an amount says which way that one amount went. */
+const INFLOW_PLURALS = new Set(["entradas", "entrate", "creditos", "accrediti", "recebimentos", "abonos", "ingresos", "haberes", "credits", "deposits", "einzahlungen", "incassi"]);
+const OUTFLOW_PLURALS = new Set(["saidas", "uscite", "debitos", "addebiti", "cargos", "egresos", "debits", "withdrawals", "auszahlungen", "spese", "gastos"]);
 
 const MONTH_NAMES: Record<string, number> = {
   jan: 1, gen: 1, ene: 1, feb: 2, fev: 2, mar: 3, apr: 4, abr: 4, may: 5, mai: 5, mag: 5, jun: 6, giu: 6, jul: 7, lug: 7,
@@ -67,10 +85,10 @@ interface Box {
   right: number;
 }
 type Atom = Box & { raw: string } & (
-  | { kind: "money"; reading: AmountReading }
+  | { kind: "money"; reading: AmountReading; /** "Saldo após:" in "Saldo após: R$ 10,00". */ label?: string }
   | { kind: "date"; partial: boolean; named?: boolean }
   | { kind: "direction"; sign: 1 | -1 }
-  | { kind: "text" }
+  | { kind: "text"; /** A reference code, kept out of the description. */ reference?: boolean }
 );
 
 interface Row {
@@ -81,50 +99,98 @@ interface Row {
   origin: number;
 }
 
+function currencyOfMark(mark: string | undefined): string | undefined {
+  if (!mark) return undefined;
+  const plain = mark.replace(/[().]/g, "").trim();
+  return /^gs$/i.test(plain) ? normalizeCurrencyCode("PYG") : normalizeCurrencyCode(plain);
+}
+
 function readMoney(text: string): AmountReading | undefined {
   const compact = text.replace(/\s+/g, "");
-  return readAmountToken(compact) ?? readAmountToken(compact.replace(CURRENCY_TAIL, ""));
+  const cents = readAmountToken(compact);
+  if (cents) return cents;
+  // A currency written after (or around) the amount: "13.710,77 EUR", "502,62 (EUR)".
+  const marked = new RegExp(String.raw`^(.*?\d)\(?(${CURRENCY_MARK})\)?$`).exec(compact);
+  const code = currencyOfMark(marked?.[2]);
+  const bare = marked && code ? readAmountToken(marked[1]!) : undefined;
+  if (bare) return { ...bare, currency: bare.currency ?? code };
+  const whole = WHOLE_UNITS.exec(text.trim());
+  if (!whole) return undefined;
+  const sign = whole[1] ?? whole[3];
+  const mark = whole[2] ?? whole[5];
+  const currency = currencyOfMark(mark);
+  // Thousands groups alone could be a reference: a sign or a currency says it is money.
+  if ((mark && !currency) || (!sign && !currency)) return undefined;
+  return { magnitude: toPlain(whole[4]!.replace(/\D/g, "")), sign: !sign ? "none" : sign === "+" ? "plus" : "minus", ...(currency ? { currency } : {}) };
 }
 
-function labelKind(text: string): FactKind | undefined {
-  const label = fold(text).replace(/[:.\s]+$/, "");
-  return FACT_LABELS.find(([, pattern]) => pattern.test(label))?.[0];
+function labelKind(text: string): { kind: FactKind; weak: boolean } | undefined {
+  const words = fold(text).replace(/[^a-z0-9 ]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 6) return undefined;
+  const totalled = TOTAL_WORDS.has(words[0]!);
+  const rest = (totalled ? words.slice(1) : words).filter((w) => !FILLER_WORDS.has(w));
+  const lead = rest[0];
+  if (!lead) return undefined;
+  const flow = `${lead} ${rest[1] ?? ""}`;
+  if (INFLOW_PLURALS.has(lead) || (totalled && CREDIT_WORDS.has(lead)) || flow === "money in" || flow === "paid in") return { kind: "in", weak: false };
+  if (OUTFLOW_PLURALS.has(lead) || (totalled && DEBIT_WORDS.has(lead)) || flow === "money out" || flow === "paid out") return { kind: "out", weak: false };
+  const balance = words.slice(0, 4).some((w) => BALANCE_NOUNS.has(w));
+  if ((balance && words.some((w) => OPENING_WORDS.has(w))) || OPENING_LEADS.has(lead)) return { kind: "opening", weak: false };
+  if ((balance && words.some((w) => CLOSING_WORDS.has(w))) || CLOSING_LEADS.has(lead)) return { kind: "closing", weak: false };
+  // A balance with no other word is, if anything, the one the statement ends on.
+  return words.length === 1 && BALANCE_NOUNS.has(lead) ? { kind: "closing", weak: true } : undefined;
 }
 
-/** Splits one positioned fragment into what it holds: a date, an amount, a direction word, text. */
-function atomsOf(item: PdfLine["items"][number]): Atom[] {
+/**
+ * Splits one positioned fragment into what it holds: dates, amounts, direction
+ * words, text. A fragment may hold several of them ("08-03 | Pagamento POS",
+ * "Saldo após: R$ 10,00", a whole table row): an amount that is not the whole
+ * fragment has no position of its own, so the nth from the end stands for a column.
+ */
+function atomsOf(item: PdfLine["items"][number], afterSeparator: boolean): Atom[] {
   const box = { left: item.x, right: item.x + item.width };
-  let text = item.text.trim();
-  if (!text || PLACEHOLDER.test(text)) return [];
   const out: Atom[] = [];
-  const whole = readMoney(text);
-  if (whole) return [{ ...box, kind: "money", reading: whole, raw: text }];
-  const named = NAMED_DATE.exec(fold(text));
-  if (named && MONTH_NAMES[named[2]!.slice(0, 3)]) return [{ ...box, kind: "date", partial: !named[3], named: true, raw: text }];
-  const leading = FULL_DATE.test(text) || PARTIAL_DATE.test(text) ? [text, text, ""] : LEADING_DATE.exec(text);
-  if (leading) {
-    out.push({ ...box, kind: "date", partial: PARTIAL_DATE.test(leading[1]!), raw: leading[1]! });
-    text = leading[2]!;
-    if (!text) return out;
+  const segments = item.text.split(SEPARATOR);
+  for (const [index, segment] of segments.entries()) {
+    let text = segment.trim();
+    if (!text || PLACEHOLDER.test(text)) continue;
+    const whole = readMoney(text);
+    if (whole) { out.push({ ...box, kind: "money", reading: whole, raw: text }); continue; }
+    const named = NAMED_DATE.exec(fold(text));
+    if (named && MONTH_NAMES[named[2]!.slice(0, 3)]) { out.push({ ...box, kind: "date", partial: !named[3], named: true, raw: text }); continue; }
+    const leading = FULL_DATE.test(text) || PARTIAL_DATE.test(text) ? [text, text, ""] : LEADING_DATE.exec(text);
+    if (leading) {
+      out.push({ ...box, kind: "date", partial: PARTIAL_DATE.test(leading[1]!), raw: leading[1]! });
+      text = leading[2]!;
+      if (!text) continue;
+    }
+    const found = [...text.matchAll(AMOUNT_IN_TEXT)].map((m) => ({ at: m.index, raw: m[0], reading: readMoney(m[0]) })).filter((m) => m.reading);
+    const pieces: Atom[] = [];
+    const words = (raw: string) => {
+      const piece = raw.replace(/^[\s,;]+|[\s,;]+$/g, "");
+      if (!/[\p{L}\p{N}]/u.test(piece)) return;
+      const word = fold(piece);
+      if (DEBIT_WORDS.has(word) || CREDIT_WORDS.has(word)) pieces.push({ ...box, kind: "direction", sign: DEBIT_WORDS.has(word) ? -1 : 1, raw: piece });
+      else {
+        const code = REFERENCE.test(word) || REFERENCE_LABELS.includes(word) || ((afterSeparator || index > 0) && word.length <= 3 && REFERENCE_LABELS.some((label) => label.startsWith(word)));
+        pieces.push({ ...box, kind: "text", raw: piece, ...(code ? { reference: true } : {}) });
+      }
+    };
+    let cursor = 0;
+    for (const [n, amount] of found.entries()) {
+      const before = text.slice(cursor, amount.at);
+      const label = /:\s*$/.test(before) ? before.trim() : undefined;
+      if (!label) words(before);
+      // The amount that opens the fragment sits where the fragment starts.
+      const column = VIRTUAL_COLUMN - (found.length - 1 - n) * 1000;
+      const place = amount.at === 0 && index === 0 && !leading ? { left: box.left, right: box.left } : { left: column, right: column };
+      pieces.push({ ...place, kind: "money", reading: amount.reading!, raw: amount.raw.trim(), ...(label ? { label } : {}) });
+      cursor = amount.at + amount.raw.length;
+    }
+    words(text.slice(cursor));
+    out.push(...pieces);
   }
-  const word = fold(text);
-  if (DEBIT_WORDS.has(word) || CREDIT_WORDS.has(word)) return [...out, { ...box, kind: "direction", sign: DEBIT_WORDS.has(word) ? -1 : 1, raw: text }];
-  // Amounts glued to the end of their text: "Saldo finale: 2.001,72 (EUR)", or a
-  // whole table row drawn as one fragment ("Coffee shop 4,50 D 995,50"). They
-  // have no position of their own: the nth from the end stands for a column.
-  let body = text.replace(CURRENCY_TAIL, "");
-  const tails: Atom[] = [];
-  while (tails.length < 3) {
-    const words = body.split(" ");
-    const take = words.length > 2 && /^(?:D|C|DR|CR|DB|[-+])$/.test(words.at(-1)!) ? 2 : 1;
-    const reading = words.length > take ? readMoney(words.slice(-take).join("")) : undefined;
-    if (!reading) break;
-    const column = VIRTUAL_COLUMN - tails.length * 1000;
-    tails.unshift({ left: column, right: column, kind: "money", reading, raw: words.slice(-take).join(" ") });
-    body = words.slice(0, -take).join(" ").replace(CURRENCY_TAIL, "");
-  }
-  if (tails.length && /\p{L}/u.test(body)) return [...out, { ...box, kind: "text", raw: body.trim() }, ...tails];
-  return [...out, { ...box, kind: "text", raw: text }];
+  return out;
 }
 
 const signedValue = (reading: AmountReading): DecimalValue => (reading.sign === "minus" || reading.sign === "debit" ? dec(reading.magnitude).negated() : dec(reading.magnitude));
@@ -153,13 +219,25 @@ function statedPeriod(lines: PdfLine[], order: DateOrder): { start: string; end:
   return undefined;
 }
 
+/** The month named in the statement's heading ("Agosto 2026"), when no pair of dates states the period. */
+function statedMonth(lines: PdfLine[]): { start: string; end: string } | undefined {
+  for (const line of lines) {
+    const m = MONTH_IN_TEXT.exec(fold(line.text));
+    const month = m && MONTH_NAMES[m[1]!.slice(0, 3)];
+    if (!m || !month || !/^(jan|gen|ene|feb|fev|mar|apr|abr|may|mai|mag|jun|giu|jul|lug|aug|ago|sep|set|oct|out|ott|okt|nov|dec|dez|dic)/.test(m[1]!)) continue;
+    const start = `${m[2]}-${String(month).padStart(2, "0")}-01`;
+    return { start, end: new Date(Date.UTC(Number(m[2]), month, 0)).toISOString().slice(0, 10) };
+  }
+  return undefined;
+}
+
 interface Movement {
   rows: Row[];
   anchor: Atom & { kind: "date" | "text" };
   /** Year and month from the heading above, when the anchor is a day number. */
   month?: { year: number; month: number };
   valueDate?: Atom;
-  money: (Atom & { kind: "money"; column: number })[];
+  money: (Atom & { kind: "money"; column: number; band: number })[];
   direction?: 1 | -1;
   /** Everything but the anchor, in reading order; amounts that turn out to be no column stay in the text. */
   parts: Atom[];
@@ -189,7 +267,7 @@ export function parsePdfStructure(lines: PdfLine[], ctx: DocumentParseContext = 
   if (!lines.length) return undefined;
   const fullTokens = lines.flatMap((l) => l.text.match(/(?<![\d/.\-])\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}(?![\d/.\-])/g) ?? []);
   const order = inferDateOrder(fullTokens, "DMY");
-  const period = statedPeriod(lines, order);
+  const period = statedPeriod(lines, order) ?? statedMonth(lines);
   const currency = currencyInText(lines) ?? ctx.fallbackCurrency;
   if (!currency) return undefined;
 
@@ -204,52 +282,63 @@ export function parsePdfStructure(lines: PdfLine[], ctx: DocumentParseContext = 
     }
     for (const group of seen.values()) if (new Set(group.map((l) => l.page)).size === pages) for (const l of group) furniture.add(l.line);
   }
-  let rows: Row[] = lines.filter((l) => !furniture.has(l.line)).map((line) => ({ line, atoms: line.items.flatMap(atomsOf), band: 0, origin: 0 }));
+  let rows: Row[] = lines.filter((l) => !furniture.has(l.line)).map((line) => {
+    const atoms: Atom[] = [];
+    let afterSeparator = false;
+    for (const item of line.items) {
+      atoms.push(...atomsOf(item, afterSeparator));
+      afterSeparator = /^[|•·]+$/.test(item.text.trim());
+    }
+    return { line, atoms, band: 0, origin: 0 };
+  });
 
-  // Balances and totals the document states about itself.
+  // Balances and totals the document states about itself. A label counts when an
+  // amount goes with it: after it on the line, under it, or in a row of values
+  // under a row of labels.
+  const isMoney = (a: Atom): a is Atom & { kind: "money" } => a.kind === "money";
+  const isText = (a: Atom): a is Atom & { kind: "text" } => a.kind === "text";
+  interface Stated { kind: FactKind; weak: boolean; label: string; value: DecimalValue; amount: Atom; from: Row; words: Atom[]; wordsFrom: Row }
+  const stated: Stated[] = [];
+  const claim = (labelText: string, amount: Atom & { kind: "money" }, from: Row, words: Atom[], wordsFrom: Row) => {
+    const found = labelKind(labelText);
+    if (!found || stated.some((c) => c.amount === amount)) return;
+    const value = signedValue(amount.reading);
+    stated.push({ ...found, label: fold(labelText).replace(/[^a-z0-9]+/g, " ").trim(), value: found.kind === "in" || found.kind === "out" ? value.abs() : value, amount, from, words, wordsFrom });
+  };
+  for (const [i, row] of rows.entries()) {
+    if (row.atoms.some((a) => a.kind === "date")) continue;
+    const next = rows[i + 1]?.line.page === row.line.page ? rows[i + 1] : undefined;
+    const texts = row.atoms.filter(isText);
+    const money = row.atoms.filter(isMoney);
+    // Each amount with the label right before it: "Totale Avere 3.064,50 • Totale Dare 1.347,08".
+    for (const [n, atom] of row.atoms.entries()) {
+      if (!isMoney(atom)) continue;
+      const before = row.atoms[n - 1];
+      if (atom.label) claim(atom.label, atom, row, [], row);
+      else if (before && isText(before)) claim(before.raw, atom, row, [before], row);
+    }
+    if (money.length === 1 && texts.length > 1) claim(texts.map((a) => a.raw).join(" "), money[0]!, row, texts, row);
+    if (money.length || !next) continue;
+    // A label with its amount under it, or alone on the next line.
+    const under = next.atoms.filter(isMoney);
+    for (const label of texts) {
+      const below = under.find((a) => Math.abs(a.left - label.left) <= 6 || Math.abs(a.right - label.right) <= 4) ?? (texts.length === 1 && next.atoms.length === 1 ? under[0] : undefined);
+      if (below) claim(below.label ? `${label.raw} ${below.label}` : label.raw, below, next, [label], row);
+    }
+  }
+  // The same label on many different amounts is printed with each movement ("Saldo após", "Disponível"): not a fact.
+  const repeated = (c: Stated) => stated.some((o) => o.kind === c.kind && o.label === c.label && !o.value.equals(c.value));
   const facts = new Map<FactKind, DecimalValue | null>();
   const boundaries = new Set<number>();
-  const state = (kind: FactKind, value: DecimalValue) => {
-    const amount = kind === "in" || kind === "out" ? value.abs() : value;
-    const known = facts.get(kind);
-    facts.set(kind, known === undefined || (known && known.equals(amount)) ? amount : null);
-  };
-  const isMoney = (a: Atom): a is Atom & { kind: "money" } => a.kind === "money";
-  for (const [i, row] of rows.entries()) {
-    const next = rows[i + 1];
-    const texts = row.atoms.filter((a) => a.kind === "text");
-    const money = row.atoms.filter(isMoney);
-    const dated = row.atoms.some((a) => a.kind === "date");
-    // A row of labels above a row of their values.
-    if (!dated && !money.length && texts.length >= 2 && texts.filter((a) => labelKind(a.raw)).length >= 2 && next && next.line.page === row.line.page && next.atoms.length === texts.length && next.atoms.every(isMoney)) {
-      for (const label of texts) {
-        const kind = labelKind(label.raw);
-        const value = next.atoms.filter(isMoney).reduce((best, a) => (Math.abs(a.left - label.left) < Math.abs(best.left - label.left) ? a : best));
-        if (kind) state(kind, signedValue(value.reading));
-      }
-      boundaries.add(row.line.line).add(next.line.line);
-      row.atoms = [];
-      next.atoms = [];
-      continue;
-    }
-    // A label and its value on one line.
-    const kind = !dated && money.length === 1 && texts.length ? labelKind(texts.map((a) => a.raw).join(" ")) : undefined;
-    if (kind) {
-      state(kind, signedValue(money[0]!.reading));
-      boundaries.add(row.line.line);
-      row.atoms = [];
-      continue;
-    }
-    // A label with its value right under it.
-    for (const label of texts) {
-      const stacked = labelKind(label.raw);
-      const under = stacked && next && next.line.page === row.line.page ? next.atoms.filter(isMoney).find((a) => Math.abs(a.left - label.left) <= 4 || Math.abs(a.right - label.right) <= 4) : undefined;
-      if (!stacked || !under || money.length) continue;
-      state(stacked, signedValue(under.reading));
-      boundaries.add(row.line.line).add(next!.line.line);
-      row.atoms = row.atoms.filter((a) => a !== label);
-      next!.atoms = next!.atoms.filter((a) => a !== under);
-    }
+  for (const c of stated.filter((c) => !repeated(c))) {
+    c.from.atoms = c.from.atoms.filter((a) => a !== c.amount);
+    c.wordsFrom.atoms = c.wordsFrom.atoms.filter((a) => !c.words.includes(a));
+    boundaries.add(c.from.line.line).add(c.wordsFrom.line.line);
+  }
+  for (const kind of ["opening", "closing", "in", "out"] as const) {
+    const all = stated.filter((c) => c.kind === kind && !repeated(c));
+    const firm = all.some((c) => !c.weak) ? all.filter((c) => !c.weak) : all;
+    if (firm.length) facts.set(kind, firm.every((c) => c.value.equals(firm[0]!.value)) ? firm[0]!.value : null);
   }
   const fact = (kind: FactKind) => facts.get(kind) ?? undefined;
 
@@ -269,20 +358,31 @@ export function parsePdfStructure(lines: PdfLine[], ctx: DocumentParseContext = 
   }
   rows = rows.filter((r) => r.atoms.length || boundaries.has(r.line.line));
 
-  // Cards printed side by side: rows holding nothing but several dates give the bands.
-  const dateRows = rows.filter((r) => r.atoms.length >= 2 && r.atoms.every((a) => a.kind === "date"));
-  const bandCount = Math.max(0, ...dateRows.map((r) => r.atoms.length));
-  const bandRows = dateRows.filter((r) => r.atoms.length === bandCount);
-  if (bandCount >= 2 && bandRows.every((r) => r.atoms.every((a, i) => Math.abs(a.left - bandRows[0]!.atoms[i]!.left) <= 4))) {
-    const edges = bandRows[0]!.atoms.map((a) => a.left - 8);
+  // Movements printed side by side — cards, or two tables — each have their own date
+  // column: rows holding nothing but several dates, or rows where an amount sits
+  // between one date and the next (a value date next to its booking date has none).
+  const isDate = (a: Atom): a is Atom & { kind: "date" } => a.kind === "date";
+  const sideBySide = (row: Row) => {
+    const dates = row.atoms.filter(isDate);
+    if (dates.length < 2) return false;
+    if (row.atoms.every(isDate)) return true;
+    return dates.every((d, i) => i === 0 || row.atoms.slice(row.atoms.indexOf(dates[i - 1]!), row.atoms.indexOf(d)).some(isMoney));
+  };
+  const dateRows = rows.filter(sideBySide);
+  const bandCount = Math.max(0, ...dateRows.map((r) => r.atoms.filter(isDate).length));
+  const bandRows = dateRows.filter((r) => r.atoms.filter(isDate).length === bandCount);
+  const bandLefts = bandRows[0]?.atoms.filter(isDate).map((a) => a.left) ?? [];
+  if (bandCount >= 2 && bandRows.every((r) => r.atoms.filter(isDate).every((a, i) => Math.abs(a.left - bandLefts[i]!) <= 4))) {
+    const edges = bandLefts.map((left) => left - 8);
     const bandOf = (a: Atom) => Math.max(0, edges.findLastIndex((edge) => a.left >= edge));
     const split: (Row & { block: number })[] = [];
     let block = 0;
     for (const row of rows) {
-      if (dateRows.includes(row)) block++;
+      if (row.atoms.some(isDate)) block++;
       if (!row.atoms.length) { split.push({ ...row, block }); continue; }
       for (let band = 0; band < bandCount; band++) {
-        const atoms = row.atoms.filter((a) => bandOf(a) === band);
+        // An amount cut out of a longer fragment has no x: it stays with the text it came from.
+        const atoms = row.atoms.filter((a, n) => bandOf(a.left >= VIRTUAL_COLUMN / 2 ? (row.atoms.slice(0, n).findLast((o) => o.left < VIRTUAL_COLUMN / 2) ?? a) : a) === band);
         if (atoms.length) split.push({ line: row.line, atoms, band, origin: edges[band]!, block });
       }
     }
@@ -292,7 +392,6 @@ export function parsePdfStructure(lines: PdfLine[], ctx: DocumentParseContext = 
 
   // What starts a movement: a full date, a day-month, or a day number under a month heading.
   const first = (row: Row) => row.atoms[0];
-  const isDate = (a: Atom): a is Atom & { kind: "date" } => a.kind === "date";
   const monthOf = (row: Row): { year: number; month: number } | undefined => {
     if (row.atoms.length !== 1 || row.atoms[0]!.kind !== "text") return undefined;
     const m = YEAR_MONTH.exec(fold(row.atoms[0]!.raw));
@@ -315,22 +414,33 @@ export function parsePdfStructure(lines: PdfLine[], ctx: DocumentParseContext = 
   const mode = [{ kind: "full" as const, anchors: leads(false) }, { kind: "partial" as const, anchors: leads(true) }, { kind: "day" as const, anchors: days }].sort((a, b) => b.anchors.length - a.anchors.length)[0]!;
   if (!mode.anchors.length) return undefined;
   const anchors = new Set(mode.anchors);
+  // Anything printed left of where the movements begin (a side panel, a margin
+  // note) is beside them, not in them.
+  for (const band of new Set(rows.map((r) => r.band))) {
+    const blockLeft = Math.min(...mode.anchors.filter((r) => r.band === band).flatMap((r) => r.atoms.map((a) => a.left)));
+    for (const row of rows) {
+      // A month heading dates the day numbers under it, wherever it is printed.
+      if (row.band !== band || anchors.has(row) || (mode.kind === "day" && monthOf(row))) continue;
+      row.atoms = row.atoms.filter((a) => a.left >= blockLeft - 4);
+    }
+  }
+  rows = rows.filter((r) => r.atoms.length || boundaries.has(r.line.line));
 
   const movement = (own: Row[], anchor: Movement["anchor"], month: Movement["month"]): Movement => {
     const atoms = own.flatMap((row) => row.atoms.filter((a) => a !== anchor).map((atom) => ({ atom, row })));
-    const referenceRow = own.find((row) => row.atoms.length === 1 && row.atoms[0]!.kind === "text" && REFERENCE.test(fold(row.atoms[0]!.raw)));
     const valueDate = own[0]!.atoms.find((a) => a !== anchor && a.kind === "date");
-    const parts = atoms.filter(({ atom, row }) => row !== referenceRow && atom !== valueDate && atom.kind !== "direction").map(({ atom }) => atom);
+    const codes = atoms.map(({ atom }) => atom).filter((a) => isText(a) && a.reference);
+    const parts = atoms.map(({ atom }) => atom).filter((a) => !codes.includes(a) && a !== valueDate && a.kind !== "direction");
     return {
       rows: own,
       anchor,
       month,
       valueDate,
-      money: atoms.filter(({ atom }) => atom.kind === "money").map(({ atom, row }) => ({ ...(atom as Atom & { kind: "money" }), left: atom.left - row.origin, right: atom.right - row.origin, column: -1 })),
+      money: atoms.filter(({ atom }) => atom.kind === "money").map(({ atom, row }) => ({ ...(atom as Atom & { kind: "money" }), left: atom.left - row.origin, right: atom.right - row.origin, band: row.band, column: -1 })),
       direction: atoms.map(({ atom }) => atom).find((a): a is Atom & { kind: "direction" } => a.kind === "direction")?.sign,
       parts,
       text: parts.filter((a) => a.kind !== "money").map((a) => a.raw).join(" "),
-      reference: referenceRow?.atoms[0]!.raw,
+      reference: codes.find((a) => /\d/.test(a.raw))?.raw,
     };
   };
   /**
@@ -415,12 +525,17 @@ export function parsePdfStructure(lines: PdfLine[], ctx: DocumentParseContext = 
 
   // Amount columns, by where the amounts end (they are usually right-aligned) or start.
   const cells = dated.flatMap((m) => m.money);
-  const byRight = cluster(cells.map((c) => c.right), 4);
-  const byLeft = cluster(cells.map((c) => c.left), 4);
-  const columnOf = Math.max(...byLeft) < Math.max(...byRight) ? byLeft : byRight;
-  cells.forEach((cell, i) => (cell.column = columnOf[i]!));
-  const columns = Math.max(...columnOf) + 1;
-  if (columns > 4) return undefined;
+  // Side-by-side blocks have columns of their own: the left one may be money out, the right one money in.
+  let columns = 0;
+  for (const band of new Set(cells.map((c) => c.band))) {
+    const own = cells.filter((c) => c.band === band);
+    const byRight = cluster(own.map((c) => c.right), 4);
+    const byLeft = cluster(own.map((c) => c.left), 4);
+    const columnOf = Math.max(...byLeft) < Math.max(...byRight) ? byLeft : byRight;
+    own.forEach((cell, i) => (cell.column = columns + columnOf[i]!));
+    columns += Math.max(...columnOf) + 1;
+  }
+  if (columns > 6 || (columns > 4 && dated.length > 2000)) return undefined;
   const columnBox = (column: number): Box => {
     const own = cells.filter((c) => c.column === column);
     return { left: Math.min(...own.map((c) => c.left)), right: Math.max(...own.map((c) => c.right)) };
@@ -435,8 +550,7 @@ export function parsePdfStructure(lines: PdfLine[], ctx: DocumentParseContext = 
 
   const read = (roles: Role[], newestFirst: boolean): Reading | undefined => {
     const count = (role: Role) => roles.filter((r) => r === role).length;
-    if (count("balance") > 1 || count("amount") > 1 || count("debit") > 1 || count("credit") > 1) return undefined;
-    if (count("amount") ? count("debit") + count("credit") > 0 : count("debit") + count("credit") === 0) return undefined;
+    if (count("amount") + count("debit") + count("credit") === 0) return undefined;
     const amounts: DecimalValue[] = [];
     const balances: (DecimalValue | undefined)[] = [];
     let running = fact("opening");
@@ -515,27 +629,31 @@ export function parsePdfStructure(lines: PdfLine[], ctx: DocumentParseContext = 
   }
 
   // Dates.
-  const complete = (candidates: (string | null)[]) => (candidates.every((d): d is string => !!d && (!period || (d >= shift(period.start, -31) && d <= shift(period.end, 31)))) ? candidates : undefined);
+  const complete = (candidates: (string | null)[]) => (candidates.every((d): d is string => !!d && (!period || (d >= shift(period.start, -45) && d <= shift(period.end, 45)))) ? candidates : undefined);
   let booked: string[] | undefined;
   let ambiguous = false;
   if (mode.kind === "full") booked = complete(dated.map((m) => parseDate(m.anchor.raw, order)));
   else if (mode.kind === "day") booked = complete(dated.map((m) => (m.month ? parseDate(`${m.month.year}-${String(m.month.month).padStart(2, "0")}-${m.anchor.raw.padStart(2, "0")}`) : null)));
   else if (period) {
-    const years = [...new Set([period.start.slice(0, 4), period.end.slice(0, 4)])];
+    // A statement may run a few days past the period it names: each date takes the year that puts it nearest.
+    const years = [...new Set([period.start.slice(0, 4), period.end.slice(0, 4)].flatMap((y) => [Number(y) - 1, Number(y), Number(y) + 1]))];
+    const outside = (d: string) => (d < period.start ? daysApart(d, period.start) : d > period.end ? daysApart(period.end, d) : 0);
     const inOrder = (monthFirst: boolean) => complete(dated.map((m) => {
       const named = NAMED_DATE.exec(fold(m.anchor.raw));
       const numeric = PARTIAL_DATE.exec(m.anchor.raw);
       if (!named && !numeric) return null;
       const [day, mon] = named ? [named[1]!, String(MONTH_NAMES[named[2]!.slice(0, 3)])] : monthFirst ? [numeric![2]!, numeric![1]!] : [numeric![1]!, numeric![2]!];
-      const found = years.map((y) => parseDate(`${y}-${mon.padStart(2, "0")}-${day.padStart(2, "0")}`)).filter((d): d is string => !!d && d >= period.start && d <= period.end);
-      return found.length === 1 ? found[0]! : null;
+      const found = years.map((y) => parseDate(`${y}-${mon.padStart(2, "0")}-${day.padStart(2, "0")}`)).filter((d): d is string => !!d && outside(d) <= 45).sort((a, b) => outside(a) - outside(b));
+      return found.length && (found.length === 1 || outside(found[0]!) < outside(found[1]!)) ? found[0]! : null;
     }));
     const dayFirst = inOrder(false), monthFirst = inOrder(true);
     const sorted = (list: string[]) => list.every((d, i) => i === 0 || d >= list[i - 1]!) || list.every((d, i) => i === 0 || d <= list[i - 1]!);
     if (dayFirst && monthFirst) {
+      const inside = (list: (string | null)[]) => list.filter((d) => outside(d!) === 0).length;
       const [a, b] = [sorted(dayFirst as string[]), sorted(monthFirst as string[])];
-      booked = (b && !a ? monthFirst : dayFirst) as string[];
-      ambiguous = a === b && dayFirst.some((d, i) => d !== monthFirst[i]);
+      const [inA, inB] = [inside(dayFirst), inside(monthFirst)];
+      booked = (inB > inA || (inB === inA && b && !a) ? monthFirst : dayFirst) as string[];
+      ambiguous = inA === inB && a === b && dayFirst.some((d, i) => d !== monthFirst[i]);
     } else booked = (dayFirst ?? monthFirst) as string[] | undefined;
   }
   if (!booked) return undefined;
@@ -556,7 +674,8 @@ export function parsePdfStructure(lines: PdfLine[], ctx: DocumentParseContext = 
   if (ambiguous) warnings.push({ code: "ambiguous_date_order", message: "Dates could be day/month or month/day; read as day/month." });
   const transactions: ParsedTransaction[] = [];
   for (const [i, m] of dated.entries()) {
-    const words = m.parts.filter((a) => a.kind !== "money" || reading.roles[m.money.find((c) => c.raw === a.raw)?.column ?? -1] === "ignore");
+    // An amount cut out of running text that is no column of the table ("S.MEDIO 7.867,42 EUR") stays in the text.
+    const words = m.parts.filter((a) => a.kind !== "money" || (a.left >= VIRTUAL_COLUMN / 2 && !a.label && reading.roles[m.money.find((c) => c.raw === a.raw)?.column ?? -1] === "ignore"));
     const description = normalizeDescription(words.map((a) => a.raw).join(" ")).slice(0, 1000);
     const head = m.rows[0]!.line;
     if (!/\p{L}/u.test(description)) {
@@ -581,7 +700,8 @@ export function parsePdfStructure(lines: PdfLine[], ctx: DocumentParseContext = 
   if (!transactions.length) return undefined;
 
   const used = new Set(dated.flatMap((m) => m.rows.map((r) => r.line.line)));
-  const adminText = lines.filter((l) => !used.has(l.line)).map((l) => l.text).join("\n");
+  // Fragments drawn apart on one line are separate statements ("ZAFFIRO" in a side panel, a balance beside it).
+  const adminText = lines.filter((l) => !used.has(l.line)).map((l) => (l.items.length > 1 ? l.items.map((item) => item.text).join(" | ") : l.text)).join("\n");
   if (isCardStatementText(adminText)) return undefined;
 
   const chain = reading.balances.every((b) => b) && reading.balances.length ? (reading.balances as DecimalValue[]) : undefined;
@@ -614,6 +734,10 @@ export function parsePdfStructure(lines: PdfLine[], ctx: DocumentParseContext = 
       ...(period ? { statedPeriod: period } : {}),
     },
   };
+}
+
+function daysApart(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 }
 
 function shift(isoDate: string, days: number): string {

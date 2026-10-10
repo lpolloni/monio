@@ -195,6 +195,64 @@ describe("structure inference for statement layouts nobody described", () => {
     ]);
     expect(st.accounts[0]).toMatchObject({ openingBalance: { amount: "1000" }, closingBalance: { amount: "2254.9" } });
   });
+
+  it("reads two tables printed side by side, telling money out from money in by the totals", async () => {
+    const st = await read([[
+      "Fictional Lakeside Bank", "Activity for March 2026 (USD)",
+      "Previous balance", at([450, "$ 1,000.00"]),
+      "Deposits", at([450, "$ 2,300.00"]),
+      "Withdrawals", at([450, "$ 730.00"]),
+      "Ending balance", at([450, "$ 2,570.00"]),
+      at([40, "WHAT LEFT"], [310, "WHAT CAME"]),
+      at([40, "03-04"], [75, "Rent"], [230, "600.00"], [310, "03-02"], [345, "Payroll"], [500, "2,000.00"]),
+      at([40, "03-19"], [75, "Groceries"], [230, "130.00"], [310, "04-01"], [345, "Refund"], [505, "300.00"]),
+    ]]);
+    expect(st.profile).toBe("pdf-inferred");
+    expect(st.warnings).toEqual([]);
+    expect(rows(st)).toEqual([
+      ["2026-03-02", "2000", "Payroll"],
+      ["2026-03-04", "-600", "Rent"],
+      ["2026-03-19", "-130", "Groceries"],
+      ["2026-04-01", "300", "Refund"],
+    ]);
+    expect(st.accounts[0]).toMatchObject({ currency: "USD", openingBalance: { amount: "1000" }, closingBalance: { amount: "2570" } });
+  });
+
+  it("ignores a side panel, splits fragments on their separators and reads totals written in one sentence", async () => {
+    const st = await read([[
+      at([40, "ZAFFIRO"], [200, "Saldo di partenza iniziale"], [470, "100,00 EUR"]),
+      at([40, "RAPPORTO"]),
+      at([200, "02/06 | Spesa mercato"], [320, "•"], [330, "Rif 7781"]),
+      at([40, "GIUGNO 2026"]),
+      at([200, "Dare"], [480, "-40,00 EUR"]),
+      at([200, "15/06 | Stipendio"], [320, "•"], [330, "Ri"]),
+      at([200, "Avere"], [470, "+900,00 EUR"]),
+      at([40, "CLIENTE"]),
+      at([40, "Anna Bruni"]),
+      at([200, "Accrediti 900,00 | Addebiti 40,00 | Saldo 960,00 EUR"]),
+      "Assistenza: aiuto@zaffiro.example - Via Inventata 3, Torino, Italia",
+    ]]);
+    expect(st.profile).toBe("pdf-inferred");
+    expect(st.warnings).toEqual([]);
+    expect(rows(st)).toEqual([["2026-06-02", "-40", "Spesa mercato"], ["2026-06-15", "900", "Stipendio"]]);
+    expect(st.accounts[0]!.transactions[0]!.raw.reference).toBe("Rif 7781");
+    expect(st.accounts[0]).toMatchObject({ country: "IT", openingBalance: { amount: "100" }, closingBalance: { amount: "960" } });
+    expect(st.institution).toMatchObject({ name: "ZAFFIRO" });
+  });
+
+  it("reads a currency printed without cents, with the balance after each movement and a total glued to its neighbour", async () => {
+    const st = await read([[
+      "Cooperativa Ficticia Ñandutí", "Periodo: 01/11/2026 — 30/11/2026",
+      at([46, "04/11"], [107, "Cobro de alquiler"]), at([470, "+2.400.000 Gs."]), at([107, "Disponible: 3.400.000 Gs."]),
+      at([46, "18/11"], [107, "Pago de luz"]), at([480, "-350.000 Gs."]), at([107, "Disponible: 3.050.000 Gs."]),
+      at([40, "SALDO ANTERIOR"], [200, "ABONOS"], [340, "CARGOS"]),
+      at([40, "1.000.000 Gs."], [200, "2.400.000 Gs."], [340, "350.000 Gs.CIERRE: 3.050.000 Gs."]),
+    ]]);
+    expect(st.profile).toBe("pdf-inferred");
+    expect(st.warnings).toEqual([]);
+    expect(rows(st)).toEqual([["2026-11-04", "2400000", "Cobro de alquiler"], ["2026-11-18", "-350000", "Pago de luz"]]);
+    expect(st.accounts[0]).toMatchObject({ currency: "PYG", country: "PY", openingBalance: { amount: "1000000" }, closingBalance: { amount: "3050000" } });
+  });
 });
 
 describe("structure inference never guesses", () => {

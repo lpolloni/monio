@@ -346,25 +346,96 @@ export function findInstitutionByIban(iban: string): InstitutionMatch | undefine
   return def ? { slug: def.slug, confidence: 0.75, evidence: `IBAN bank code ${code}` } : undefined;
 }
 
-const ISSUER_WORD = /(?<![a-z0-9])(banco|banca|bank|banque|caixa|cassa|caja|credito|credit|sparkasse|volksbank|financeira|finanziaria|financial|finance|pagamentos|payments|corretora|investimentos|cooperativa|savings|poste)(?![a-z0-9])/;
-const NOT_A_NAME = /(?<![a-z0-9])(saldo|conta|conto|account|extrato|estratto|statement|cliente|customer|titular|titolare|iban|bic|swift|limite|cartao|carta|card|fatura|total|totale)(?![a-z0-9])/;
+const ISSUER_WORD = /(?<![a-z0-9])(banco|banca|bank|banque|caixa|cassa|caja|credito|credit|sparkasse|volksbank|financeira|financiera|finanziaria|financial|finance|corretora|investimentos|cooperativa|savings|poste)(?![a-z0-9])/;
+const NOT_A_NAME = /(?<![a-z0-9])(saldo|conta|conto|cuenta|account|extrato|estratto|extracto|statement|cliente|customer|titular|titolare|iban|bic|swift|limite|cartao|carta|card|fatura|total|totale|debitos|creditos|debito|pagamentos|recebimentos|movimenti|movimentos|movimientos|lancamentos|periodo|period|resumo|riepilogo|dati|datos|dados|ficha|registro|anagrafica)(?![a-z0-9])/;
+/** Mail providers: an address there is the customer's, not the issuer's. */
+const PUBLIC_MAIL = new Set(["gmail", "googlemail", "hotmail", "outlook", "live", "yahoo", "icloud", "me", "proton", "protonmail", "pm", "uol", "bol", "terra", "libero", "virgilio", "alice", "tiscali", "gmx", "web", "aol", "msn"]);
+const compactName = (value: string) => fold(value).replace(/[^a-z0-9]/g, "");
 
-/**
- * Names the issuer of a statement no catalog entry matches: the first short
- * header phrase that reads like an institution ("Banco Cedro", "Stella Alpina
- * Credito", "Banca Fittizia Aurora S.p.A." before " - Estratto conto"). Callers
- * must not pass transaction text.
- */
-export function findIssuerName(text: string): string | undefined {
+/** A short header phrase that could be a name: few words, no figures, no label. */
+function namePhrases(text: string): string[] {
+  const out: string[] = [];
   for (const line of text.slice(0, MAX_MATCH_TEXT).split("\n")) {
-    for (const part of line.split(/\s+[-–—|·•]\s+|[,;:]\s+/)) {
-      const name = part.trim();
-      const folded = fold(name);
-      if (name.length < 5 || name.length > 50 || /\d/.test(name) || name.split(/\s+/).length < 2 || name.split(/\s+/).length > 6) continue;
-      if (ISSUER_WORD.test(folded) && !NOT_A_NAME.test(folded)) return name;
+    for (const part of line.split(/\s+[-–—|·•/]\s+|[,;:]\s+/)) {
+      // A full stop closing a logo ("tamandua.") is not part of the name; the one in "S.p.A." is.
+      const name = part.trim().replace(/^([^.]*)\.$/, "$1").trim();
+      if (name.length < 4 || name.length > 50 || /\d|[/@]/.test(name) || name.split(/\s+/).length > 6 || NOT_A_NAME.test(fold(name))) continue;
+      out.push(name);
     }
   }
-  return undefined;
+  return out;
+}
+
+/**
+ * Names the issuer of a statement no catalog entry matches. The strongest
+ * evidence is the issuer's own domain: a header phrase that the domain of a
+ * contact address or site repeats ("MOSAICO" with supporto@mosaico.example).
+ * Otherwise, the first short header phrase that reads like an institution
+ * ("Banco Cedro", "Stella Alpina Credito", "Banca Fittizia Aurora S.p.A." before
+ * " - Estratto conto"). Callers must not pass transaction text.
+ */
+export function findIssuerName(text: string): string | undefined {
+  const phrases = namePhrases(text);
+  const domains = [...text.slice(0, MAX_MATCH_TEXT).matchAll(/(?:@|https?:\/\/(?:www\.)?|www\.)([a-z0-9-]{4,40})\.[a-z]{2,}/gi)].map((m) => m[1]!.toLowerCase()).filter((d) => !PUBLIC_MAIL.has(d));
+  const backed = (name: string) => domains.some((d) => { const c = compactName(name); return c.length >= 4 && (c.includes(d.replace(/-/g, "")) || d.replace(/-/g, "").includes(c)); });
+  const institution = (name: string) => name.split(/\s+/).length >= 2 && ISSUER_WORD.test(fold(name));
+  const found = phrases.find((n) => institution(n) && backed(n)) ?? phrases.find(backed) ?? phrases.find(institution);
+  // A name printed in lower case is a logo ("tamandua."): give it a capital.
+  return found && found === found.toLowerCase() ? found.replace(/^\p{L}/u, (c) => c.toUpperCase()) : found;
+}
+
+const COUNTRY_NAMES: Record<string, string> = {
+  italia: "IT", italy: "IT", italien: "IT", brasil: "BR", brazil: "BR", brasile: "BR", paraguay: "PY", paraguai: "PY",
+  portugal: "PT", espana: "ES", spain: "ES", espanha: "ES", spagna: "ES", france: "FR", franca: "FR", francia: "FR",
+  deutschland: "DE", germany: "DE", alemanha: "DE", germania: "DE", alemania: "DE", argentina: "AR", uruguay: "UY", uruguai: "UY",
+  chile: "CL", mexico: "MX", messico: "MX", colombia: "CO", peru: "PE", bolivia: "BO", suisse: "CH", schweiz: "CH", svizzera: "CH", switzerland: "CH", suica: "CH",
+  "united kingdom": "GB", "regno unito": "GB", "reino unido": "GB", england: "GB", ireland: "IE", irlanda: "IE", nederland: "NL", netherlands: "NL",
+  belgium: "BE", belgique: "BE", belgio: "BE", austria: "AT", osterreich: "AT", lithuania: "LT", lietuva: "LT", "united states": "US", "estados unidos": "US", "stati uniti": "US",
+  canada: "CA", australia: "AU", japan: "JP", luxembourg: "LU",
+};
+/** Currencies used by one country only. */
+const CURRENCY_COUNTRY: Record<string, string> = {
+  BRL: "BR", PYG: "PY", GBP: "GB", CHF: "CH", ARS: "AR", CLP: "CL", COP: "CO", MXN: "MX", UYU: "UY", PEN: "PE", JPY: "JP", CAD: "CA", AUD: "AU",
+  CNY: "CN", INR: "IN", SEK: "SE", NOK: "NO", DKK: "DK", PLN: "PL", CZK: "CZ", HUF: "HU", TRY: "TR", ZAR: "ZA",
+};
+/** Statement vocabulary that only one of the euro-area languages uses. */
+const STATEMENT_WORDS: Record<string, string[]> = {
+  IT: ["conto", "estratto", "movimenti", "operazioni", "dettaglio", "riepilogo", "dare", "avere", "entrate", "uscite", "iniziale", "finale", "causale", "intestatario", "filiale", "della", "delle"],
+  ES: ["cuenta", "extracto", "movimientos", "fecha", "debe", "haber", "cierre", "sucursal", "titular", "importe", "desde", "hasta"],
+  PT: ["conta", "extrato", "movimentos", "lancamentos", "saidas", "historico", "agencia", "balcao", "resumo", "ate", "descricao"],
+  DE: ["konto", "kontoauszug", "buchung", "betrag", "soll", "haben", "wertstellung", "kontostand", "umsatze", "vom", "bis"],
+  FR: ["compte", "releve", "solde", "operations", "libelle", "montant", "du", "au", "agence", "valeur"],
+};
+const KNOWN_COUNTRIES = new Set([...Object.values(COUNTRY_NAMES), ...Object.values(CURRENCY_COUNTRY), "LT", "LU", "FI", "GR", "MT", "CY", "SK", "SI", "EE", "LV", "HR", "BG", "RO"]);
+
+/**
+ * The country a statement comes from, by the strongest evidence it holds: the
+ * account's IBAN, the issuer's BIC, a country named in the header or address
+ * (the one named most), then a currency only one country uses. Callers must
+ * not pass transaction text.
+ */
+export function findCountry(text: string, hints: { iban?: string; currency?: string } = {}): string | undefined {
+  const iban = hints.iban?.slice(0, 2).toUpperCase();
+  if (iban && hints.iban && isValidIban(hints.iban) && KNOWN_COUNTRIES.has(iban)) return iban;
+  const bic = findBic(text)?.slice(4, 6);
+  if (bic && KNOWN_COUNTRIES.has(bic)) return bic;
+  const folded = fold(text.slice(0, MAX_MATCH_TEXT));
+  const counts = new Map<string, number>();
+  for (const [name, code] of Object.entries(COUNTRY_NAMES)) {
+    const hits = folded.match(new RegExp(`(?<![a-z])${escapeRegExp(name)}(?![a-z])`, "g"))?.length ?? 0;
+    if (hits) counts.set(code, (counts.get(code) ?? 0) + hits);
+  }
+  // A Brazilian postcode is labelled as such.
+  if (/(?<![a-z])cep\s*:?\s*\d{5}-?\d{3}/.test(folded)) counts.set("BR", (counts.get("BR") ?? 0) + 1);
+  const named = [...counts].sort((a, b) => b[1] - a[1]);
+  if (named.length && (named.length === 1 || named[0]![1] > named[1]![1])) return named[0]![0];
+  const byCurrency = hints.currency ? CURRENCY_COUNTRY[hints.currency.toUpperCase()] : undefined;
+  if (byCurrency) return byCurrency;
+  // Last resort, for the euro: the language the statement is written in. A default, not evidence.
+  if (hints.currency?.toUpperCase() !== "EUR") return undefined;
+  const words = new Set(folded.split(/[^a-z]+/));
+  const spoken = Object.entries(STATEMENT_WORDS).map(([country, list]) => ({ country, hits: list.filter((w) => words.has(w)).length })).sort((a, b) => b.hits - a.hits);
+  return spoken[0]!.hits >= 2 && spoken[0]!.hits > spoken[1]!.hits ? spoken[0]!.country : undefined;
 }
 
 /**
@@ -372,7 +443,8 @@ export function findIssuerName(text: string): string | undefined {
  * "SWIFT/BIC NTSBDEB1XXX"): any eight capital letters would match otherwise.
  */
 export function findBic(text: string): string | undefined {
-  const m = /\b(?:BIC|SWIFT)(?:\s*\/\s*(?:BIC|SWIFT))?(?:\s+code)?\s*:?\s*([A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)(?![A-Za-z0-9])/.exec(text.slice(0, MAX_MATCH_TEXT));
+  // The label in any case, with a word or two after it ("BIC di prova:"); the code itself in capitals.
+  const m = /\b(?:BIC|Bic|bic|SWIFT|Swift|swift)(?:\s*\/\s*(?:BIC|SWIFT))?(?:\s+[A-Za-zÀ-ÿ]{2,12}){0,2}?\s*:?\s*([A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)(?![A-Za-z0-9])/.exec(text.slice(0, MAX_MATCH_TEXT));
   return m?.[1];
 }
 

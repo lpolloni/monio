@@ -3,11 +3,13 @@ import {
   INSTITUTIONS,
   bicContradicts,
   findBic,
+  findCountry,
   findIban,
   findInstitutionByBic,
   findInstitutionByIban,
   findInstitutionByOfxId,
   findInstitutionByText,
+  findIssuerName,
   isValidIban,
 } from "./institution-catalog";
 
@@ -79,5 +81,29 @@ describe("institution catalog", () => {
     expect(bicContradicts("BBVAITMMXXX", "n26")).toBe(true);
     expect(bicContradicts("NTSBITM1XXX", "n26")).toBe(false);
     expect(bicContradicts("BBVAITMMXXX", "nubank")).toBe(false);
+  });
+
+  it("names an issuer outside the catalog from the header, preferring the name its own domain repeats", () => {
+    expect(findIssuerName("Banca Fittizia Aurora S.p.A. - Estratto conto\nCliente: Mario")).toBe("Banca Fittizia Aurora S.p.A.");
+    expect(findIssuerName("Stella Fittizia Credito\nRiepilogo operazioni")).toBe("Stella Fittizia Credito");
+    // A brand with no "bank" in it, backed by the domain of its contact address.
+    expect(findIssuerName("ZAFFIRO\nCREDITO | ANAGRAFICA\nSofia Ricci\nAssistenza: aiuto@zaffiro.example")).toBe("ZAFFIRO");
+    expect(findIssuerName("capivara.\nSeu cadastro | Agosto 2026\nJoao Almeida\nCanal digital: oi@capivara.example")).toBe("Capivara");
+    // Column headings and the customer's own mail provider are not issuers.
+    expect(findIssuerName("PAGAMENTOS / DÉBITOS RECEBIMENTOS / CRÉDITOS\nMaria Souza\nmaria.souza@gmail.com")).toBeUndefined();
+    expect(findIssuerName("Maria Souza\nExtrato de conta")).toBeUndefined();
+  });
+
+  it("tells the country from the IBAN, the BIC, the address, a one-country currency, then the language", () => {
+    expect(findCountry("Qualquer texto", { iban: "IT60X0542811101000000123456", currency: "EUR" })).toBe("IT");
+    expect(findCountry("Swift ficticio ARAMPYPX0XX (no valido)\nAsuncion", { currency: "USD" })).toBe("PY");
+    expect(findCountry("Rua das Acacias, 218 - Recife/PE - CEP 50000-000", { currency: "USD" })).toBe("BR");
+    expect(findCountry("Viale delle Magnolie 75, 20100 Milano, Italia", { currency: "EUR" })).toBe("IT");
+    expect(findCountry("Sem endereco", { currency: "BRL" })).toBe("BR");
+    expect(findCountry("Sem endereco", { currency: "PYG" })).toBe("PY");
+    expect(findCountry("Estratto conto - Dettaglio movimenti - Dare / Avere", { currency: "EUR" })).toBe("IT");
+    expect(findCountry("Kontoauszug - Buchung - Betrag - Kontostand", { currency: "EUR" })).toBe("DE");
+    expect(findCountry("Statement of account", { currency: "EUR" })).toBeUndefined();
+    expect(findCountry("Statement of account", { currency: "USD" })).toBeUndefined();
   });
 });

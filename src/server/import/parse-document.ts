@@ -14,6 +14,7 @@ import { detectFormat } from "./detect-format";
 import {
   bicContradicts,
   findBic,
+  findCountry,
   findInstitutionByBic,
   findInstitutionByIban,
   findInstitutionByText,
@@ -142,6 +143,14 @@ function finalize(output: ParserOutput, ctx: DocumentParseContext): ParsedStatem
 
   statement.period = computePeriod(statement.accounts, output.statedPeriod);
   checkBalances(statement);
+
+  // Where the statement comes from, for accounts that do not say (no IBAN).
+  if (output.institutionText) {
+    for (const account of statement.accounts) {
+      account.country ??= findCountry(output.institutionText, { iban: account.identifier, currency: account.currency });
+      if (!account.country) delete account.country;
+    }
+  }
 
   const institution = resolveInstitution(output, statement, ctx.filename);
   if (institution) statement.institution = institution;

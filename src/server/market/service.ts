@@ -1,5 +1,6 @@
 import { getCurrency, isFiat } from "@/domain/money/currencies";
 import { COINGECKO_IDS, CoinGeckoProvider } from "./providers/coingecko";
+import { CurrencyApiProvider } from "./providers/currency-api";
 import { FrankfurterProvider } from "./providers/frankfurter";
 import { MockRateProvider } from "./providers/mock";
 import {
@@ -17,7 +18,9 @@ import {
  * Market data entry point.
  *
  * mock → MockRateProvider (deterministic; the dev default).
- * live → fiat/fiat pairs via Frankfurter (ECB), every other pair via CoinGecko.
+ * live → fiat/fiat pairs via Frankfurter (ECB) when the ECB publishes both
+ *        currencies, via the open currency-api dataset otherwise (PYG, ARS,
+ *        CLP...); every other pair via CoinGecko.
  *
  * Results are validated (rate > 0, ISO date) and sorted by base/quote/date.
  * Pairs a provider cannot price are simply absent from the result. If any
@@ -49,6 +52,9 @@ export function isFiatCode(code: string): boolean {
   return !getCurrency(code) && !COINGECKO_IDS[code] && /^[A-Z]{3}$/.test(code);
 }
 
+/** Currencies with an ECB reference rate (what Frankfurter serves). Asking it for another one returns nothing. */
+const ECB_CURRENCIES = new Set(["EUR", "USD", "JPY", "BGN", "CZK", "DKK", "GBP", "HUF", "PLN", "RON", "SEK", "CHF", "ISK", "NOK", "TRY", "AUD", "BRL", "CAD", "CNY", "HKD", "IDR", "ILS", "INR", "KRW", "MXN", "MYR", "NZD", "PHP", "SGD", "THB", "ZAR"]);
+
 const SERVICE = "market";
 
 export function createMarketDataService(config: MarketDataServiceConfig): MarketDataService {
@@ -69,7 +75,11 @@ export function createMarketDataService(config: MarketDataServiceConfig): Market
       ...(config.apiKey ? { apiKey: config.apiKey } : {}),
       ...(config.now ? { now: config.now } : {}),
     });
-    return (pair: CurrencyPair) => (isFiatCode(pair.base) && isFiatCode(pair.quote) ? fiat : crypto);
+    const otherFiat = new CurrencyApiProvider(shared);
+    return (pair: CurrencyPair) => {
+      if (!isFiatCode(pair.base) || !isFiatCode(pair.quote)) return crypto;
+      return ECB_CURRENCIES.has(pair.base) && ECB_CURRENCIES.has(pair.quote) ? fiat : otherFiat;
+    };
   })();
 
   async function dispatch(

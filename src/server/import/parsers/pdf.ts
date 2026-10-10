@@ -22,7 +22,7 @@ import { z } from "zod";
 import { parseAmount } from "@/domain/import/parse-amount";
 import { inferDateOrder, parseDate, type DateOrder } from "@/domain/import/parse-date";
 import type { AccountType, ParsedAccount, ParsedTransaction, ParseWarning } from "@/domain/import/types";
-import { isKnownCurrency, normalizeCurrencyCode } from "@/domain/money/currencies";
+import { CURRENCIES, isKnownCurrency, normalizeCurrencyCode } from "@/domain/money/currencies";
 import { dec, toPlain } from "@/domain/money/decimal";
 import { findIban, findInstitutionByText, getInstitution } from "../institution-catalog";
 import { mergeDocumentInterpretation, needsDocumentAi, validateDocumentInterpretation } from "./document-ai";
@@ -1039,6 +1039,13 @@ function columnAmounts(line: PdfLine, dateLength: number, columns: Column[]) {
 
 const DMY_CURRENCIES = new Set(["BRL", "EUR", "GBP", "CHF"]);
 
+/** Other fiat codes are also everyday words (TRY, PEN, COP): they count next to a number or a currency label. */
+const OTHER_FIAT = CURRENCIES.filter((c) => c.kind === "fiat" && !["EUR", "BRL", "USD", "GBP", "CHF"].includes(c.code)).map((c) => c.code).join("|");
+const CURRENCY_IN_CONTEXT = new RegExp(
+  String.raw`(?:\d\s?\(?|(?:moneda|moeda|valuta|currency|divisa|w[aä]hrung)\s*:?\s*)(${OTHER_FIAT}|Gs\.?|₲|¥)(?![A-Za-z])|(?<![A-Za-z])(${OTHER_FIAT}|Gs\.?|₲|¥)\s?[-+]?\d`,
+  "gi",
+);
+
 /** Most frequent currency symbol/code written in the document, if any. */
 export function currencyInText(lines: PdfLine[]): string | undefined {
   const counts = new Map<string, number>();
@@ -1046,6 +1053,12 @@ export function currencyInText(lines: PdfLine[]): string | undefined {
   for (const line of lines.slice(0, 2000)) {
     for (const m of line.text.matchAll(pattern)) {
       const code = normalizeCurrencyCode(m[0]);
+      if (code) counts.set(code, (counts.get(code) ?? 0) + 1);
+    }
+    for (const m of line.text.matchAll(CURRENCY_IN_CONTEXT)) {
+      const mark = (m[1] ?? m[2])!;
+      // A code is written in capitals; "pen" or "try" in running text is a word.
+      const code = /^[a-z]{3}$/i.test(mark) && mark !== mark.toUpperCase() ? undefined : normalizeCurrencyCode(mark.replace(/\.$/, ""));
       if (code) counts.set(code, (counts.get(code) ?? 0) + 1);
     }
   }

@@ -154,6 +154,12 @@ export interface RunImportDeps {
   today: string;
   /** AI service (already gated by the user's cloud consent) or null: rules only. */
   ai: AiService | null;
+  /**
+   * Makes sure exchange rates exist for the currencies of the imported accounts
+   * since the given date, so their value shows in the user's currency right away.
+   * Failures are the callee's to swallow: an import never fails for a rate.
+   */
+  ensureRates?: (currencies: string[], from: string) => Promise<void>;
   now?: () => Date;
 }
 
@@ -725,13 +731,14 @@ async function processJob(
   // with a stable key across monthly imports. RLS still scopes every operation.
   if (!institution && !hintSlug && statement.institution?.name && statement.institution.confidence >= 0.6) {
     const name = statement.institution.name.slice(0, 120);
+    const country = statement.accounts.map((a) => a.country).find((c): c is string => !!c && /^[A-Z]{2}$/.test(c)) ?? null;
     const slug = `import-${hashIdentifier(fold(name).replace(/\s+/g, " ")).slice(0, 40)}`;
     const lookup = () => db.from("institutions").select("id, slug, name, country").eq("owner_id", userId).eq("slug", slug).maybeSingle();
     const existing = await lookup();
     if (existing.error) throw existing.error;
     institution = existing.data;
     if (!institution) {
-      const created = await db.from("institutions").insert({ owner_id: userId, slug, name, kind: "bank" }).select("id, slug, name, country").single();
+      const created = await db.from("institutions").insert({ owner_id: userId, slug, name, kind: "bank", country }).select("id, slug, name, country").single();
       if (created.error?.code === "23505") {
         const concurrent = await lookup();
         if (concurrent.error) throw concurrent.error;
@@ -739,6 +746,11 @@ async function processJob(
         if (!institution) throw created.error;
       } else if (created.error) throw created.error;
       else institution = created.data;
+    } else if (!institution.country && country) {
+      // An institution named before its country was known learns it from this statement.
+      const { error } = await db.from("institutions").update({ country }).eq("id", institution.id).eq("owner_id", userId);
+      if (error) throw error;
+      institution = { ...institution, country };
     }
   }
   const business = isBusinessVariant(institution?.slug ?? hintSlug, statement.profile);
@@ -785,6 +797,13 @@ async function processJob(
     resolved.push({ parsed, account });
   }
   if (resolved.length === 0) throw new ImportJobError("unreadable");
+  // Accounts created before their country could be told learn it now.
+  for (const { parsed, account } of resolved) {
+    const country = institution?.country ?? (parsed.country && /^[A-Z]{2}$/.test(parsed.country) ? parsed.country : null);
+    if (account.created || !country) continue;
+    const { error } = await db.from("accounts").update({ country }).eq("id", account.id).eq("user_id", userId).is("country", null);
+    if (error) throw error;
+  }
 
   // normalizing ------------------------------------------------------------------
   await setStage("normalizing");
@@ -968,6 +987,10 @@ async function processJob(
 
   // reconciling: transfers, duplicates, recurring, inbox questions, insights --------
   await setStage("reconciling");
+  if (deps.ensureRates) {
+    const currencies = [...new Set([primaryCurrency, ...resolved.map((r) => r.account.currency)])];
+    if (currencies.length > 1) await deps.ensureRates(currencies, statement.period?.start ?? deps.today);
+  }
   try {
     await postProcessUser(db, userId, { today: deps.today, scopeTransactionIds: insertedIds });
   } catch (error) {
