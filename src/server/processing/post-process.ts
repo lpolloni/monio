@@ -154,7 +154,23 @@ export async function postProcessUser(db: MonioClient, userId: string, options: 
     const crossEntity = (outAcc?.entityKind === "business") !== (inAcc?.entityKind === "business");
     const pairKey = `transfer_pair:${out.accountId}:${inc.accountId}`;
     const decision = decisionByPair.get(pairKey);
-    if (decision === "not_transfer") continue;
+    if (decision === "not_transfer") {
+      // Money between personal and business that the user says is not a transfer is
+      // income on the personal side and an expense on the business side.
+      if (crossEntity) {
+        for (const [t, acc] of [
+          [out, outAcc],
+          [inc, inAcc],
+        ] as const) {
+          if (t.categoryId) continue;
+          const slug = t.amount.startsWith("-") ? (acc?.entityKind === "business" ? "business_expenses" : "other_expense") : acc?.entityKind === "business" ? "business_income" : "salary";
+          const categoryId = systemCategory.get(slug);
+          if (!categoryId) continue;
+          updates.push({ id: t.id, category_id: categoryId, category_source: "user", category_confidence: 0.9 });
+        }
+      }
+      continue;
+    }
     if ((m.confidence === "high" && !crossEntity) || decision === "transfer") {
       const group = crypto.randomUUID();
       const slug = m.kind === "card_payment" ? "card_payment" : "internal_transfer";

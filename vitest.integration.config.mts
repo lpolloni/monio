@@ -5,7 +5,10 @@ import { defineConfig } from "vitest/config";
 // They require `npm run dev:services` and a populated .env.local.
 export default defineConfig({
   resolve: {
-    alias: { "@": path.resolve(import.meta.dirname, "src") },
+    alias: {
+      "@": path.resolve(import.meta.dirname, "src"),
+      "server-only": path.resolve(import.meta.dirname, "tests/helpers/empty-module.ts"),
+    },
   },
   test: {
     environment: "node",

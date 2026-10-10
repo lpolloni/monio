@@ -34,12 +34,13 @@
   --warning: oklch(0.68 0.15 70);
   --warning-soft: oklch(0.68 0.15 70 / 0.14);
 
-  --group-cash: oklch(0.6 0.13 235);
-  --group-investments: oklch(0.55 0.18 285);
-  --group-crypto: oklch(0.72 0.15 80);
+  /* Asset-group palette: validated for CVD separation (dataviz validator, light surface). */
+  --group-cash: oklch(0.64 0.13 240);
+  --group-investments: oklch(0.46 0.19 305);
+  --group-crypto: oklch(0.74 0.15 80);
   --group-business: oklch(0.6 0.11 190);
-  --group-liabilities: oklch(0.62 0.17 27);
-  --group-other: oklch(0.68 0.07 55);
+  --group-liabilities: oklch(0.6 0.2 28);
+  --group-other: oklch(0.58 0.11 180);
 
   --aurora-1: oklch(0.86 0.12 165 / 0.55);
   --aurora-2: oklch(0.84 0.1 230 / 0.5);
@@ -71,12 +72,13 @@
   --warning: oklch(0.84 0.13 80);
   --warning-soft: oklch(0.84 0.13 80 / 0.14);
 
-  --group-cash: oklch(0.78 0.11 235);
-  --group-investments: oklch(0.74 0.14 290);
-  --group-crypto: oklch(0.85 0.13 85);
-  --group-business: oklch(0.78 0.1 190);
-  --group-liabilities: oklch(0.74 0.15 27);
-  --group-other: oklch(0.8 0.06 62);
+  /* Dark steps chosen separately (L 0.48–0.67 band), validated against the dark surface. */
+  --group-cash: oklch(0.66 0.12 240);
+  --group-investments: oklch(0.53 0.2 305);
+  --group-crypto: oklch(0.66 0.14 80);
+  --group-business: oklch(0.7 0.1 190);
+  --group-liabilities: oklch(0.62 0.19 28);
+  --group-other: oklch(0.59 0.12 180);
 
   --aurora-1: oklch(0.55 0.12 165 / 0.22);
   --aurora-2: oklch(0.5 0.12 235 / 0.22);

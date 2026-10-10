@@ -3,7 +3,7 @@
 import { ArrowLeftRight, Copy, CreditCard } from "lucide-react";
 import { useTranslations } from "use-intl";
 import { Badge } from "@/components/ui/primitives";
-import { cn } from "@/lib/utils";
+import { cn, prettyDescription } from "@/lib/utils";
 import { CategoryIcon } from "./category-icon";
 import { Money } from "./money";
 
@@ -28,7 +28,7 @@ export interface TransactionItemData {
 export function TransactionItem({ tx, onSelect, compact = false }: { tx: TransactionItemData; onSelect?: () => void; compact?: boolean }) {
   const t = useTranslations();
   const isTransfer = tx.classification !== "regular";
-  const title = tx.merchant ?? tx.description;
+  const title = tx.merchant ?? prettyDescription(tx.description);
   const categoryLabel = tx.categorySlug
     ? t(`categories.${tx.categorySlug}` as "categories.groceries")
     : t("categories.uncategorized");

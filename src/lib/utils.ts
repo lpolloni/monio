@@ -22,3 +22,24 @@ export function monogram(name: string): string {
 export function hueColor(hue: number, alpha = 1): string {
   return `oklch(0.7 0.13 ${hue} / ${alpha})`;
 }
+
+const KEEP_UPPER = new Set(["PIX", "TED", "DOC", "SA", "S.A.", "SRL", "SPA", "LTDA", "ME", "EIRELI", "IOF", "DARF", "F24", "SDD", "ATM", "POS", "USD", "EUR", "BRL", "N26", "MPS", "BBVA", "XP", "PJ", "IBAN", "CNPJ", "CPF"]);
+
+/**
+ * Display-only prettifier for ALL-CAPS bank descriptions ("PIX RECEBIDO CLIENTE
+ * ALFA LTDA" → "Pix Recebido Cliente Alfa LTDA"). The original text is always
+ * kept and shown in the transaction's provenance.
+ */
+export function prettyDescription(description: string): string {
+  if (/[a-zà-ÿ]/.test(description)) return description;
+  return description
+    .toLowerCase()
+    .split(/(\s+)/)
+    .map((word) => {
+      const upper = word.toUpperCase();
+      if (KEEP_UPPER.has(upper) || /\d/.test(word) || word.length <= 1) return upper;
+      if (["de", "da", "do", "das", "dos", "di", "del", "della", "e", "a", "of", "the"].includes(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join("");
+}

@@ -137,23 +137,25 @@ interface SeedAccount {
   syncedDaysAgo: number;
   /** Balance today (or at the stale date). */
   balance?: string;
+  /** Country where the account is used (not the institution's headquarters). */
+  country: string;
 }
 
 const ACCOUNTS: SeedAccount[] = [
-  { key: "nu", institution: "nubank", name: "Conta Nubank", type: "checking", currency: "BRL", entity: "personal", mask: "4821", syncedDaysAgo: 2, balance: "8452.37" },
-  { key: "nucard", institution: "nubank", name: "Nubank Ultravioleta", type: "credit_card", currency: "BRL", entity: "personal", mask: "7712", creditLimit: "15000", syncedDaysAgo: 2 },
-  { key: "pj", institution: "nubank-pj", name: "Conta PJ Lumen", type: "checking", currency: "BRL", entity: "business", mask: "0453", syncedDaysAgo: 3, balance: "42810.55" },
-  { key: "xp", institution: "xp", name: "XP Investimentos", type: "investment", currency: "BRL", entity: "personal", mask: "9930", syncedDaysAgo: 9 },
-  { key: "santander", institution: "santander-br", name: "Conta Santander", type: "checking", currency: "BRL", entity: "personal", mask: "1187", syncedDaysAgo: 46, balance: "3120.80" },
-  { key: "carloan", institution: "santander-br", name: "Financiamento Veículo", type: "loan", currency: "BRL", entity: "personal", syncedDaysAgo: 46 },
-  { key: "bbva", institution: "bbva-it", name: "Conto BBVA", type: "checking", currency: "EUR", entity: "personal", mask: "6604", syncedDaysAgo: 1, balance: "6784.12" },
-  { key: "n26", institution: "n26", name: "N26 Main", type: "checking", currency: "EUR", entity: "personal", mask: "2290", syncedDaysAgo: 1, balance: "2151.48" },
-  { key: "n26space", institution: "n26", name: "Space Viaggi", type: "savings", currency: "EUR", entity: "personal", syncedDaysAgo: 1, balance: "4250.00" },
-  { key: "reveur", institution: "revolut", name: "Revolut EUR", type: "checking", currency: "EUR", entity: "personal", mask: "5512", syncedDaysAgo: 0, balance: "1432.90" },
-  { key: "revusd", institution: "revolut", name: "Revolut USD", type: "checking", currency: "USD", entity: "personal", syncedDaysAgo: 0, balance: "862.15" },
-  { key: "mps", institution: "mps", name: "Conto Casa MPS", type: "checking", currency: "EUR", entity: "shared", mask: "3307", syncedDaysAgo: 5, balance: "4208.66" },
-  { key: "mortgage", institution: "mps", name: "Mutuo Casa", type: "mortgage", currency: "EUR", entity: "shared", syncedDaysAgo: 5 },
-  { key: "home", institution: null, name: "Casa Milano", type: "other", currency: "EUR", entity: "shared", syncedDaysAgo: 40, balance: "312000.00" },
+  { key: "nu", institution: "nubank", name: "Conta Nubank", type: "checking", currency: "BRL", entity: "personal", mask: "4821", syncedDaysAgo: 2, balance: "8452.37", country: "BR" },
+  { key: "nucard", institution: "nubank", name: "Nubank Ultravioleta", type: "credit_card", currency: "BRL", entity: "personal", mask: "7712", creditLimit: "15000", syncedDaysAgo: 2, country: "BR" },
+  { key: "pj", institution: "nubank-pj", name: "Conta PJ Lumen", type: "checking", currency: "BRL", entity: "business", mask: "0453", syncedDaysAgo: 3, balance: "42810.55", country: "BR" },
+  { key: "xp", institution: "xp", name: "XP Investimentos", type: "investment", currency: "BRL", entity: "personal", mask: "9930", syncedDaysAgo: 9, country: "BR" },
+  { key: "santander", institution: "santander-br", name: "Conta Santander", type: "checking", currency: "BRL", entity: "personal", mask: "1187", syncedDaysAgo: 46, balance: "3120.80", country: "BR" },
+  { key: "carloan", institution: "santander-br", name: "Financiamento Veículo", type: "loan", currency: "BRL", entity: "personal", syncedDaysAgo: 46, country: "BR" },
+  { key: "bbva", institution: "bbva-it", name: "Conto BBVA", type: "checking", currency: "EUR", entity: "personal", mask: "6604", syncedDaysAgo: 1, balance: "6784.12", country: "IT" },
+  { key: "n26", institution: "n26", name: "N26 Main", type: "checking", currency: "EUR", entity: "personal", mask: "2290", syncedDaysAgo: 1, balance: "2151.48", country: "IT" },
+  { key: "n26space", institution: "n26", name: "Space Viaggi", type: "savings", currency: "EUR", entity: "personal", syncedDaysAgo: 1, balance: "4250.00", country: "IT" },
+  { key: "reveur", institution: "revolut", name: "Revolut EUR", type: "checking", currency: "EUR", entity: "personal", mask: "5512", syncedDaysAgo: 0, balance: "1432.90", country: "IT" },
+  { key: "revusd", institution: "revolut", name: "Revolut USD", type: "checking", currency: "USD", entity: "personal", syncedDaysAgo: 0, balance: "862.15", country: "IT" },
+  { key: "mps", institution: "mps", name: "Conto Casa MPS", type: "checking", currency: "EUR", entity: "shared", mask: "3307", syncedDaysAgo: 5, balance: "4208.66", country: "IT" },
+  { key: "mortgage", institution: "mps", name: "Mutuo Casa", type: "mortgage", currency: "EUR", entity: "shared", syncedDaysAgo: 5, country: "IT" },
+  { key: "home", institution: null, name: "Casa Milano", type: "other", currency: "EUR", entity: "shared", syncedDaysAgo: 40, balance: "312000.00", country: "IT" },
 ];
 
 interface SeedTx {
@@ -290,10 +292,10 @@ async function seedDemoUser(userId: string) {
         name: a.name,
         type: a.type,
         currency: a.currency,
-        country: inst?.country ?? null,
+        country: a.country,
         account_mask: a.mask ?? null,
         credit_limit: a.creditLimit ? dbNumeric(a.creditLimit) : null,
-        last_synced_at: new Date(Date.parse(`${addDaysIso(TODAY, -a.syncedDaysAgo)}T09:30:00Z`)).toISOString(),
+        last_synced_at: new Date(Math.min(Date.parse(`${addDaysIso(TODAY, -a.syncedDaysAgo)}T09:30:00Z`), Date.now() - 45 * 60_000)).toISOString(),
         sync_source: a.type === "other" ? "manual" : "seed",
       })
       .select("id")
