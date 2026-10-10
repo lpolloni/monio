@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import { useLocale, useTranslations } from "use-intl";
 import { cn } from "@/lib/utils";
+import { countOpenInbox } from "@/server/actions/finance";
 
 const ACCEPT = ".pdf,.csv,.ofx,.qfx,.xlsx,.txt";
 const STAGES = [
@@ -51,6 +52,7 @@ export function ImportView({ maxMb }: { maxMb: number }) {
   const locale = useLocale();
   const [items, setItems] = useState<QueueItem[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [openReview, setOpenReview] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const patch = useCallback((key: string, p: Partial<QueueItem>) => setItems((list) => list.map((i) => (i.key === key ? { ...i, ...p } : i))), []);
@@ -82,6 +84,8 @@ export function ImportView({ maxMb }: { maxMb: number }) {
         }
         if (job.status === "completed" || job.status === "needs_review") {
           patch(key, { state: "completed", stage: "completed", progress: 100, stats: job.stats });
+          // Per-job counts overlap when files import concurrently: show the real open total.
+          setOpenReview(await countOpenInbox());
           return;
         }
         patch(key, { state: "processing", stage: job.stage, progress: job.progress });
@@ -237,7 +241,7 @@ export function ImportView({ maxMb }: { maxMb: number }) {
                 t("organized", { count: totals.organized }),
                 t("accountsIdentified", { count: totals.accounts }),
                 t("recurringDetected", { count: totals.recurring }),
-                t("reviewItems", { count: totals.review }),
+                t("reviewItems", { count: openReview ?? totals.review }),
                 ...(totals.skipped > 0 ? [t("duplicatesSkipped", { count: totals.skipped })] : []),
               ].map((line, i) => (
                 <motion.li key={line} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 + i * 0.08 }} className="flex items-center gap-2">
@@ -247,7 +251,7 @@ export function ImportView({ maxMb }: { maxMb: number }) {
               ))}
             </ul>
             <div className="mt-6 flex flex-wrap gap-2">
-              {totals.review > 0 ? (
+              {(openReview ?? totals.review) > 0 ? (
                 <Link href={`/${locale}/inbox`} className="inline-flex h-10 items-center gap-2 rounded-full bg-fg px-5 text-[14px] font-medium text-bg">
                   {t("reviewNow")}
                   <ArrowRight className="size-4" />

@@ -82,6 +82,8 @@ export interface ParsedAccount {
 export interface ParseWarning {
   code:
     | "row_unreadable"
+    /** Row intentionally not imported (e.g. declined/reverted card payment) — informational. */
+    | "row_skipped"
     | "missing_amount"
     | "missing_date"
     | "unknown_currency"

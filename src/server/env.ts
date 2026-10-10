@@ -24,7 +24,8 @@ const ServerEnvSchema = z.object({
   EXCHANGE_RATE_PROVIDER: z.enum(["mock", "live"]).default("mock"),
   EXCHANGE_RATE_API_URL: z.string().optional(),
   EXCHANGE_RATE_API_KEY: z.string().optional(),
-  IMPORT_MAX_FILE_MB: z.coerce.number().int().min(1).max(50).default(15),
+  // The private documents bucket enforces 15 MB (migration); the app limit cannot exceed it.
+  IMPORT_MAX_FILE_MB: z.coerce.number().int().min(1).max(15).default(15),
 });
 
 export type ServerEnv = z.infer<typeof ServerEnvSchema>;

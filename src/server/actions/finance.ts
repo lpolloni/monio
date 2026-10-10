@@ -163,3 +163,11 @@ export async function deleteAllFinancialData(confirmation: string): Promise<Resu
   refresh();
   return { ok: true };
 }
+
+/** Number of open Smart Inbox items (used by the import summary). */
+export async function countOpenInbox(): Promise<number> {
+  const s = await getSession();
+  if (!s) return 0;
+  const { count } = await s.supabase.from("inbox_items").select("id", { count: "exact", head: true }).eq("status", "open");
+  return count ?? 0;
+}

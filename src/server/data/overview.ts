@@ -9,7 +9,7 @@ import { getAccounts, getCategories, getFxTable, getTransactionsInRange } from "
 import { getInboxPreview, type InboxItemView } from "./inbox";
 import { getInsightsList, type InsightView } from "./insights";
 import { getProfile, requireSession } from "./session";
-import { toFlow, type TransactionRow } from "./transactions";
+import { queryActivity, toFlow, type TransactionRow } from "./transactions";
 
 export interface RecentTransaction extends TransactionRow {
   accountName: string;
@@ -42,10 +42,12 @@ export async function getHomeOverview(): Promise<HomeOverview> {
   const currency = profile.primaryCurrency;
   const from = monthStart(monthKey(today));
   const fx = await getFxTable(addDaysIso(from, -45), today);
-  const [accounts, categories, monthTx, inbox, insights] = await Promise.all([
+  const [accounts, categories, monthTx, latest, inbox, insights] = await Promise.all([
     getAccounts(),
     getCategories(),
-    getTransactionsInRange(addDaysIso(from, -30), today),
+    getTransactionsInRange(from, today),
+    // Latest activity regardless of date (imported statements may be older than this month).
+    queryActivity(supabase, { to: today, limit: 7, offset: 0 }),
     getInboxPreview(3),
     getInsightsList(3),
   ]);
@@ -60,7 +62,7 @@ export async function getHomeOverview(): Promise<HomeOverview> {
     { from, to: today, includeBusiness: profile.includeBusiness },
   );
 
-  const recent = monthTx.slice(0, 7).map((t): RecentTransaction => {
+  const recent = latest.rows.map((t): RecentTransaction => {
     const account = accountMap.get(t.accountId);
     const category = t.categoryId ? categoryMap.get(t.categoryId) : undefined;
     return {
@@ -82,7 +84,6 @@ export async function getHomeOverview(): Promise<HomeOverview> {
     businessByEntity.set(a.entityId, { name: a.entityName, value: toPlain(sum([prev?.value ?? "0", a.value])) });
   }
 
-  void supabase;
   return {
     today,
     currency,

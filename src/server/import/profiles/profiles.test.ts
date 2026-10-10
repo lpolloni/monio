@@ -117,7 +117,7 @@ describe("Revolut", () => {
     expect(fx).toEqual(["-100", "-0.5"]);
 
     expect(eur.transactions.some((t) => t.description === "Amazon Example" || t.description === "Cafe Exemplo")).toBe(false);
-    expect(st.warnings.filter((w) => w.code === "row_unreadable").map((w) => w.row)).toEqual([7, 8]);
+    expect(st.warnings.filter((w) => w.code === "row_skipped").map((w) => w.row)).toEqual([7, 8]);
 
     const uber = eur.transactions.find((t) => t.description === "Uber")!;
     expect(uber).toMatchObject({ pending: true, bookedOn: "2026-03-09", amount: "-12.4" });
@@ -243,7 +243,7 @@ describe("generic heuristic profile", () => {
     const st = await parseText(csv);
     expect(st.accounts.map((a) => a.currency)).toEqual(["EUR", "USD"]);
     expect(st.accounts[1]!.transactions).toEqual([expect.objectContaining({ description: "Taxi", pending: true })]);
-    expect(st.warnings).toEqual([expect.objectContaining({ code: "row_unreadable", row: 3 })]);
+    expect(st.warnings).toEqual([expect.objectContaining({ code: "row_skipped", row: 3 })]);
   });
 
   it("returns no transactions and unsupported_layout when it cannot map columns confidently", async () => {

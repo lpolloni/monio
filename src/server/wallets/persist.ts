@@ -73,7 +73,11 @@ export async function persistWalletSnapshot(
     if (!assetId) continue;
     rows.set(assetId, { asset_id: assetId, quantity: h.quantity });
   }
-  const { data: previous } = await db.from("wallet_latest_holdings").select("asset_id, quantity:quantity::text").eq("wallet_id", walletId);
+  const { data: previous } = await db
+    .from("wallet_latest_holdings")
+    .select("asset_id, quantity:quantity::text")
+    .eq("wallet_id", walletId)
+    .eq("user_id", userId);
   for (const p of previous ?? []) {
     if (p.asset_id && !rows.has(p.asset_id) && p.quantity !== "0") rows.set(p.asset_id, { asset_id: p.asset_id, quantity: "0" });
   }
@@ -125,7 +129,8 @@ export async function persistWalletSnapshot(
       last_synced_at: syncedAt,
       networks: snapshot.networksScanned,
     })
-    .eq("id", walletId);
-  await db.from("accounts").update({ last_synced_at: syncedAt, sync_source: "blockchain" }).eq("id", accountId);
+    .eq("id", walletId)
+    .eq("user_id", userId);
+  await db.from("accounts").update({ last_synced_at: syncedAt, sync_source: "blockchain" }).eq("id", accountId).eq("user_id", userId);
   return { holdings: rows.size, transactions: txRows.length };
 }

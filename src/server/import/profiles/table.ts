@@ -214,7 +214,7 @@ export function readTable(rows: string[][], ctx: ProfileContext, spec: TableSpec
 
     const skip = spec.skip?.(view);
     if (skip) {
-      if (skip.warn) warnings.add({ code: "row_unreadable", message: skip.reason, row: rowNumber });
+      if (skip.warn) warnings.add({ code: "row_skipped", message: skip.reason, row: rowNumber });
       previous = undefined;
       continue;
     }
