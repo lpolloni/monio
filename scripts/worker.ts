@@ -2,7 +2,7 @@
  * Monio background worker (DEV tooling).
  *
  *   npm run worker -- jobs      process queued imports (and imports stuck in "processing" > 10 min)
- *   npm run worker -- rates     refresh exchange rates (EXCHANGE_RATE_PROVIDER = mock | live)
+ *   npm run worker -- rates     refresh rates for the currencies in use (EXCHANGE_RATE_PROVIDER = mock | live); fiat and crypto are saved independently
  *   npm run worker -- wallets   sync every watch-only crypto wallet (BLOCKCHAIN_PROVIDER = mock | live)
  *   npm run worker -- all       rates, then wallets, then jobs
  *
@@ -59,29 +59,76 @@ async function processJobs(admin: Admin): Promise<boolean> {
   return true;
 }
 
+/**
+ * Currencies the users actually hold: account and display currencies, plus the
+ * currencies of crypto assets with a holding. Only these codes are kept (rates
+ * are global reference data; no user, account or amount leaves this function).
+ */
+async function currenciesInUse(admin: Admin): Promise<{ fiat: Set<string>; crypto: Set<string> }> {
+  const [accounts, profiles, holdings] = await Promise.all([
+    admin.from("accounts").select("currency"),
+    admin.from("profiles").select("primary_currency"),
+    admin.from("wallet_holdings").select("asset_id"),
+  ]);
+  if (accounts.error) throw accounts.error;
+  if (profiles.error) throw profiles.error;
+  if (holdings.error) throw holdings.error;
+  const assetIds = [...new Set((holdings.data ?? []).map((h) => h.asset_id))];
+  const assets = assetIds.length
+    ? await admin.from("crypto_assets").select("currency_code").in("id", assetIds)
+    : { data: [], error: null };
+  if (assets.error) throw assets.error;
+  const fiat = new Set([...(accounts.data ?? []).map((a) => a.currency), ...(profiles.data ?? []).map((p) => p.primary_currency)]);
+  const crypto = new Set((assets.data ?? []).map((a) => a.currency_code).filter((c): c is string => !!c));
+  return { fiat, crypto };
+}
+
+/**
+ * Fetches and stores rates for each provider group on its own: when one
+ * provider is unavailable (rate limit, outage) the others are still saved.
+ * Returns false when any group failed, so the exit code still reports it.
+ */
 async function refreshRates(admin: Admin): Promise<boolean> {
   const market = getMarketService();
   const { data: currencies, error } = await admin.from("currencies").select("code, kind");
   if (error) throw error;
+  const kinds = new Map((currencies ?? []).map((c) => [c.code, c.kind]));
+  const inUse = await currenciesInUse(admin);
   // Fiat against EUR; crypto and stablecoins against USD (FxTable derives crosses).
-  const pairs = (currencies ?? []).flatMap((c) => {
-    if (c.kind === "fiat") return c.code === "EUR" ? [] : [{ base: "EUR", quote: c.code }];
-    return c.code === "USD" ? [] : [{ base: c.code, quote: "USD" }];
-  });
+  const fiatPairs = [...inUse.fiat].filter((code) => kinds.get(code) === "fiat" && code !== "EUR").map((code) => ({ base: "EUR", quote: code }));
+  const cryptoPairs = [...inUse.crypto]
+    .filter((code) => kinds.get(code) !== "fiat" && code !== "USD")
+    .map((code) => ({ base: code, quote: "USD" }));
+  const groups = [
+    { name: "fiat", pairs: fiatPairs },
+    { name: "crypto", pairs: cryptoPairs },
+  ].filter((g) => g.pairs.length > 0);
+  if (groups.length === 0) {
+    console.log("rates: no foreign currencies in use; nothing to fetch");
+    return true;
+  }
   const to = today();
-  const [latest, history] = await Promise.all([market.latest(pairs), market.historical(pairs, addDaysIso(to, -RATE_BACKFILL_DAYS), to)]);
-  const rows = new Map<string, { base: string; quote: string; as_of: string; rate: number; source: string }>();
-  for (const q of [...history, ...latest]) {
-    rows.set(`${q.base}|${q.quote}|${q.asOf}|${q.source}`, { base: q.base, quote: q.quote, as_of: q.asOf, rate: dbNumeric(q.rate), source: q.source });
+  let ok = true;
+  for (const { name, pairs } of groups) {
+    try {
+      const [latest, history] = await Promise.all([market.latest(pairs), market.historical(pairs, addDaysIso(to, -RATE_BACKFILL_DAYS), to)]);
+      const rows = new Map<string, { base: string; quote: string; as_of: string; rate: number; source: string }>();
+      for (const q of [...history, ...latest]) {
+        rows.set(`${q.base}|${q.quote}|${q.asOf}|${q.source}`, { base: q.base, quote: q.quote, as_of: q.asOf, rate: dbNumeric(q.rate), source: q.source });
+      }
+      const list = [...rows.values()];
+      for (let i = 0; i < list.length; i += 1000) {
+        const { error: upsertError } = await admin.from("exchange_rates").upsert(list.slice(i, i + 1000), { onConflict: "base,quote,as_of,source" });
+        if (upsertError) throw upsertError;
+      }
+      const priced = new Set(list.map((r) => `${r.base}/${r.quote}`)).size;
+      console.log(`rates: ${name} via ${market.provider} · ${priced}/${pairs.length} pairs priced · ${list.length} observations upserted`);
+    } catch (error) {
+      ok = false;
+      console.error(`rates: ${name} failed (${describeError(error)}); other groups were still saved`);
+    }
   }
-  const list = [...rows.values()];
-  for (let i = 0; i < list.length; i += 1000) {
-    const { error: upsertError } = await admin.from("exchange_rates").upsert(list.slice(i, i + 1000), { onConflict: "base,quote,as_of,source" });
-    if (upsertError) throw upsertError;
-  }
-  const priced = new Set(list.map((r) => `${r.base}/${r.quote}`)).size;
-  console.log(`rates: provider ${market.provider} · ${priced}/${pairs.length} pairs priced · ${list.length} observations upserted`);
-  return true;
+  return ok;
 }
 
 async function syncWallets(admin: Admin): Promise<boolean> {
