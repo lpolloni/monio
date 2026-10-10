@@ -165,11 +165,12 @@ describe("document import pipeline (local Supabase)", () => {
     expect((await runImportJob(user.client, user.id, reprocess.jobId, { today: TODAY, ai })).status).toBe("skipped");
   });
 
-  it("imports a Revolut CSV with two currency pockets, pending rows, balances and a review item for skipped lines", async () => {
+  it("imports a Revolut CSV with two currency pockets, pending rows and balances; skipped rows create no review work", async () => {
     const result = await upload(user, "revolut.csv");
     const outcome = await runImportJob(user.client, user.id, result.jobId, { bytes: fixture("revolut.csv"), today: TODAY, ai });
-    // DECLINED/REVERTED rows are reported by the parser as unreadable lines → document_incomplete.
-    expect(outcome.status).toBe("needs_review");
+    // DECLINED/REVERTED rows never moved money: they are skipped (informational), not unreadable,
+    // so they do not create review work.
+    expect(outcome.status).toBe("completed");
     expect(outcome.stats).toMatchObject({ transactionsOrganized: 10, accountsIdentified: 2, warnings: 2, institution: { slug: "revolut" } });
 
     const { data: rows } = await user.client.from("transactions").select("account_id, currency, status").eq("document_id", result.documentId);
@@ -194,9 +195,9 @@ describe("document import pipeline (local Supabase)", () => {
     ]);
 
     const { data: inbox } = await user.client.from("inbox_items").select("kind, payload, status").eq("document_id", result.documentId);
-    expect(inbox).toEqual([expect.objectContaining({ kind: "document_incomplete", status: "open", payload: expect.objectContaining({ file: "revolut.csv", lines: 2 }) })]);
+    expect((inbox ?? []).filter((i) => i.kind === "document_incomplete")).toEqual([]);
     const { data: doc } = await user.client.from("documents").select("status").eq("id", result.documentId).single();
-    expect(doc!.status).toBe("needs_review");
+    expect(doc!.status).toBe("processed");
   });
 
   it("stores only the masked identifier and its hash for an OFX account", async () => {

@@ -10,6 +10,7 @@
  * Prints counts only — never document content, transactions, balances or addresses.
  * Refuses to run with APP_ENV=production unless WORKER_ALLOW_PRODUCTION=true.
  */
+import { purgeOrphanedDocuments } from "@/server/maintenance/purge";
 import { addDaysIso } from "@/domain/analytics/periods";
 import { detectWatchTarget } from "@/domain/crypto/addresses";
 import { describeError, isStaleProcessing, runImportJob } from "@/server/import/pipeline";
@@ -18,7 +19,7 @@ import { createAdminClient } from "@/server/supabase/admin";
 import { dbNumeric } from "@/server/supabase/numeric";
 import { ensureAssets, persistWalletSnapshot } from "@/server/wallets/persist";
 
-const MODES = ["jobs", "rates", "wallets", "all"] as const;
+const MODES = ["jobs", "rates", "wallets", "purge", "all"] as const;
 type Mode = (typeof MODES)[number];
 
 const JOB_BATCH = 100;
@@ -135,6 +136,11 @@ async function runMode(name: Exclude<Mode, "all">, admin: Admin): Promise<boolea
   try {
     if (name === "jobs") return await processJobs(admin);
     if (name === "rates") return await refreshRates(admin);
+    if (name === "purge") {
+      const r = await purgeOrphanedDocuments(admin);
+      console.log(`purge: ${r.folders} orphaned folders · ${r.objects} objects removed`);
+      return true;
+    }
     return await syncWallets(admin);
   } catch (error) {
     console.error(`${name}: failed (${describeError(error)})`);
@@ -153,7 +159,7 @@ async function main(): Promise<number> {
     return 1;
   }
   const admin = createAdminClient();
-  const steps: Exclude<Mode, "all">[] = mode === "all" ? ["rates", "wallets", "jobs"] : [mode];
+  const steps: Exclude<Mode, "all">[] = mode === "all" ? ["rates", "wallets", "jobs", "purge"] : [mode];
   let ok = true;
   for (const step of steps) ok = (await runMode(step, admin)) && ok;
   return ok ? 0 : 1;

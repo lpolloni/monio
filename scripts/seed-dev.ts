@@ -26,6 +26,7 @@ import { categorizeBatch, loadRules, persistLearnedRules } from "@/server/proces
 import { postProcessUser } from "@/server/processing/post-process";
 import type { Database } from "@/server/supabase/database.types";
 import { dbNumeric } from "@/server/supabase/numeric";
+import { deleteUserCompletely } from "@/server/maintenance/purge";
 import { ensureAssets, persistWalletSnapshot } from "@/server/wallets/persist";
 
 // ---------------------------------------------------------------------------
@@ -80,10 +81,7 @@ async function resetUser(email: string, name: string): Promise<string> {
   const { data: list, error } = await admin.auth.admin.listUsers({ perPage: 1000 });
   if (error) throw error;
   const existing = list.users.find((u) => u.email === email);
-  if (existing) {
-    const { error: delError } = await admin.auth.admin.deleteUser(existing.id);
-    if (delError) throw delError;
-  }
+  if (existing) await deleteUserCompletely(admin, existing.id);
   const { data, error: createError } = await admin.auth.admin.createUser({
     email,
     password: DEMO_PASSWORD,
