@@ -18,6 +18,8 @@ import { useAddSheet } from "@/components/shell/add-sheet";
 import { formatDate, formatMoney, formatRelative, freshnessOf } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { setDisplayCurrency, setIncludeBusiness } from "@/server/actions/preferences";
+import { useMediaQuery } from "@/lib/use-media-query";
+import { Sheet } from "@/components/ui/sheet";
 import { WealthConstellation, type ConstellationNode } from "./wealth-constellation";
 
 export interface AccountLite {
@@ -87,6 +89,9 @@ export function HomeView({ model }: { model: HomeViewModel }) {
   };
 
   const selectedNode = model.nodes.find((n) => n.key === selected) ?? null;
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  // Desktop: the panel replaces the summary next to the constellation. Smaller screens: bottom sheet.
+  const inlineNode = isDesktop ? selectedNode : null;
   const firstName = model.displayName?.split(" ")[0];
 
   return (
@@ -130,12 +135,12 @@ export function HomeView({ model }: { model: HomeViewModel }) {
 
         <div className="order-1 min-h-[22rem] lg:order-2">
           <AnimatePresence mode="wait" initial={false}>
-            {selectedNode ? (
+            {inlineNode ? (
               <InstitutionPanel
-                key={selectedNode.key}
-                node={selectedNode}
-                accounts={model.institutionAccounts[selectedNode.key] ?? []}
-                meta={model.institutionMeta[selectedNode.key]}
+                key={inlineNode.key}
+                node={inlineNode}
+                accounts={model.institutionAccounts[inlineNode.key] ?? []}
+                meta={model.institutionMeta[inlineNode.key]}
                 currency={model.currency}
                 now={model.now}
                 onClose={() => setSelected(null)}
@@ -187,6 +192,28 @@ export function HomeView({ model }: { model: HomeViewModel }) {
           </AnimatePresence>
         </div>
       </section>
+
+      {!isDesktop ? (
+        <Sheet
+          open={!!selectedNode}
+          onOpenChange={(open) => !open && setSelected(null)}
+          title={selectedNode?.name ?? ""}
+          closeLabel={t("common.close")}
+          hideTitle
+        >
+          {selectedNode ? (
+            <InstitutionPanel
+              node={selectedNode}
+              accounts={model.institutionAccounts[selectedNode.key] ?? []}
+              meta={model.institutionMeta[selectedNode.key]}
+              currency={model.currency}
+              now={model.now}
+              onClose={() => setSelected(null)}
+              embedded
+            />
+          ) : null}
+        </Sheet>
+      ) : null}
 
       {/* Below the fold */}
       <section className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-12">
@@ -343,6 +370,7 @@ function InstitutionPanel({
   currency,
   now,
   onClose,
+  embedded = false,
 }: {
   node: ConstellationNode;
   accounts: AccountLite[];
@@ -350,6 +378,7 @@ function InstitutionPanel({
   currency: string;
   now: string;
   onClose: () => void;
+  embedded?: boolean;
 }) {
   const t = useTranslations();
   const locale = useLocale();
@@ -361,7 +390,7 @@ function InstitutionPanel({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 16 }}
       transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-      className="rounded-[2rem] bg-bg-elevated/85 p-6 shadow-soft hairline backdrop-blur-xl"
+      className={embedded ? "" : "rounded-[2rem] bg-bg-elevated/85 p-6 shadow-soft hairline backdrop-blur-xl"}
     >
       <div className="flex items-start gap-4">
         <motion.span
@@ -385,9 +414,11 @@ function InstitutionPanel({
             ))}
           </div>
         </div>
-        <button type="button" onClick={onClose} className="grid size-9 place-items-center rounded-full bg-surface-2 text-fg-muted transition hover:text-fg" aria-label={t("common.close")}>
-          <X className="size-4" />
-        </button>
+        {embedded ? null : (
+          <button type="button" onClick={onClose} className="grid size-9 place-items-center rounded-full bg-surface-2 text-fg-muted transition hover:text-fg" aria-label={t("common.close")}>
+            <X className="size-4" />
+          </button>
+        )}
       </div>
       <div className="mt-6">
         <AnimatedMoney

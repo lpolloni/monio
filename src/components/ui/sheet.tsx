@@ -16,6 +16,8 @@ interface SheetProps {
   side?: "responsive" | "right" | "center";
   className?: string;
   closeLabel?: string;
+  /** Keep the title for assistive technology only (content provides its own heading). */
+  hideTitle?: boolean;
 }
 
 /**
@@ -23,7 +25,7 @@ interface SheetProps {
  * from the right (or centered) on larger screens. Focus trap, Escape and
  * scroll locking come from Radix Dialog.
  */
-export function Sheet({ open, onOpenChange, title, description, children, side = "responsive", className, closeLabel = "Close" }: SheetProps) {
+export function Sheet({ open, onOpenChange, title, description, children, side = "responsive", className, closeLabel = "Close", hideTitle = false }: SheetProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <AnimatePresence>
@@ -57,7 +59,7 @@ export function Sheet({ open, onOpenChange, title, description, children, side =
                 <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-border-strong md:hidden" aria-hidden />
                 <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-2">
                   <div>
-                    <Dialog.Title className="font-display text-[1.9rem] leading-tight text-fg">{title}</Dialog.Title>
+                    <Dialog.Title className={cn("font-display text-[1.9rem] leading-tight text-fg", hideTitle && "sr-only")}>{title}</Dialog.Title>
                     {description ? (
                       <Dialog.Description className="mt-1 text-sm text-fg-muted">{description}</Dialog.Description>
                     ) : (

@@ -7,6 +7,7 @@ import { Toaster } from "sonner";
 import { IntlProvider } from "use-intl";
 import type { Locale } from "@/i18n/config";
 import type { Messages } from "@/i18n/messages/en";
+import { ServiceWorkerRegistration } from "./service-worker";
 
 export function Providers({ locale, messages, children }: { locale: Locale; messages: Messages; children: ReactNode }) {
   return (
@@ -15,6 +16,7 @@ export function Providers({ locale, messages, children }: { locale: Locale; mess
       <IntlProvider locale={locale} messages={messages} timeZone="UTC">
         <MotionConfig reducedMotion="user">
           {children}
+          <ServiceWorkerRegistration />
           <Toaster
             position="top-center"
             toastOptions={{
