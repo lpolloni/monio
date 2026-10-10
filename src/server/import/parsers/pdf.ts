@@ -26,6 +26,7 @@ import { isKnownCurrency, normalizeCurrencyCode } from "@/domain/money/currencie
 import { dec, toPlain } from "@/domain/money/decimal";
 import { findIban, findInstitutionByText, getInstitution } from "../institution-catalog";
 import { mergeDocumentInterpretation, needsDocumentAi, validateDocumentInterpretation } from "./document-ai";
+import { parseSignedLedger } from "./signed-ledger";
 import { canLearnPdf, pdfLayoutKey, reusablePdf } from "./pdf-learning";
 import { WarningSink } from "./warnings";
 import { fold, normalizeDescription, sanitizeCell } from "./text";
@@ -265,7 +266,7 @@ function completeYear(
 
 const AMOUNT_TOKEN = /^\(?[-−+]?(?:R\$|US\$|€|£|\$)?[-−+]?(\d{1,3}(?:[.,'’  ]\d{3})+|\d+)([.,])(\d{2})\)?(-|D|C|DR|CR|DB)?$/;
 const CURRENCY_TOKEN = /^(R\$|US\$|€|£|\$|EUR|BRL|USD|GBP|CHF)$/;
-const MARKER_TOKEN = /^(-|\+|−|D|C|DR|CR|DB)$/;
+const MARKER_TOKEN = /^(?:-|\+|−|D|C|DR|CR|DB|\([+-]\))$/;
 
 export interface AmountReading {
   /** Unsigned canonical magnitude ("1234.56"). */
@@ -278,6 +279,7 @@ export interface AmountReading {
 /** Reads one amount token (optionally with attached sign/currency/marker); requires two decimals. */
 export function readAmountToken(token: string): AmountReading | undefined {
   if (token.length > 40) return undefined;
+  token = token.replace(/^([\d.,]+)\s*\(([+-])\)$/, "$2$1");
   const m = AMOUNT_TOKEN.exec(token);
   if (!m) return undefined;
   const integer = m[1]!;
@@ -307,7 +309,7 @@ function trailingAmount(tokens: string[]): TrailingAmount | undefined {
   let currency: string | undefined;
   let marker: string | undefined;
   if (i >= 0 && CURRENCY_TOKEN.test(tokens[i]!)) currency = normalizeCurrencyCode(tokens[i--]!);
-  if (i >= 0 && MARKER_TOKEN.test(tokens[i]!) && i > 0 && AMOUNT_TOKEN.test(tokens[i - 1]!)) marker = tokens[i--];
+  if (i >= 0 && MARKER_TOKEN.test(tokens[i]!) && i > 0 && AMOUNT_TOKEN.test(tokens[i - 1]!)) marker = tokens[i--]!.replace(/[()]/g, "");
   const token = tokens[i];
   if (token === undefined) return undefined;
   const reading = readAmountToken(token);
@@ -665,6 +667,8 @@ function parseReconciledTable(lines: PdfLine[]): ParserOutput | undefined {
 export async function parsePdfLines(lines: PdfLine[], ctx: DocumentParseContext = {}): Promise<ParserOutput> {
   const nubank = parseNubankAccountLines(lines);
   if (nubank) return nubank;
+  const ledger = parseSignedLedger(lines, ctx);
+  if (ledger) return ledger;
   const reconciled = parseReconciledTable(lines);
   if (reconciled) return reconciled;
   const warnings = new WarningSink();

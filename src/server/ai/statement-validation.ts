@@ -126,7 +126,7 @@ export function amountTokensInLine(text: string): AmountToken[] {
     const before = masked.slice(0, start);
     const after = masked.slice(end);
     const parenthesized = OPEN_PAREN.test(before) && CLOSE_PAREN.test(after);
-    const negative = LEADING_MINUS.test(before) || TRAILING_DEBIT.test(after) || parenthesized;
+    const negative = LEADING_MINUS.test(before) || TRAILING_DEBIT.test(after) || /^\s*\(-\)/.test(after) || parenthesized;
     tokens.push({ values: [...values], negative });
   }
   return tokens;

@@ -21,6 +21,8 @@ export interface InstitutionDefinition {
   aliases: string[];
   /** Ambiguous names (shared with other entities/countries): weak evidence only. */
   weakAliases?: string[];
+  /** Branded names in the holder's own position summary, never counterparties. */
+  ownedProductAliases?: string[];
   /** OFX <ORG>, <FID> or <BANKID> values (numeric ids compared without leading zeros). */
   ofxIds?: string[];
   bic?: string;
@@ -153,6 +155,7 @@ export const INSTITUTIONS: readonly InstitutionDefinition[] = [
     kind: "bank",
     brandColor: "#fae128",
     aliases: ["banco do brasil"],
+    ownedProductAliases: ["bb rende facil", "bb lci"],
     ofxIds: ["001", "1"],
     bic: "BRASBRRJ",
     defaultCurrency: "BRL",

@@ -40,6 +40,9 @@ export function parseAmount(raw: string | number | null | undefined, hint?: Deci
   }
   s = s.replace(CURRENCY_TOKEN, " ");
 
+  // Some ledgers put a standalone sign after the amount: "43,63 (-)".
+  const suffixSign = /^([\d.,\s]+)\s*\(([+-])\)\s*$/.exec(s);
+  if (suffixSign) s = `${suffixSign[2]}${suffixSign[1]}`;
   let negative = false;
   // Debit / credit suffix markers used by some Brazilian and Italian exports.
   const dc = s.match(/\s([DC])\s*$/i);

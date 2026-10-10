@@ -88,6 +88,8 @@ function directionIn(text: string): "in" | "out" | undefined {
 }
 function directionSupported(amount: string, amountLine: DocumentLine, evidence: DocumentLine, all: Map<number, DocumentLine>): boolean {
   const negative = dec(amount).isNegative();
+  const signedCells = amountLine.items.filter(i => /\([+-]\)\s*$/.test(i.text) && hasMagnitude(amount, i.text));
+  if (signedCells.length === 1) return negative === /\(-\)\s*$/.test(signedCells[0]!.text);
   // A dash in an empty document/reference column is not a monetary minus.
   const signText = amountLine.items.length ? amountLine.items.filter((item, i, items) =>
     !(/^[-−–—]$/.test(item.text) && items[i + 1] && items[i + 1]!.x - item.x - item.width > 12)
