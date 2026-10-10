@@ -7,7 +7,7 @@ import { findInstitutionByText } from "../institution-catalog";
 import type { PdfLine } from "./pdf";
 
 // Increment when any certified reader or validation semantics change.
-export const PDF_READER_VERSION = 2;
+export const PDF_READER_VERSION = 3;
 export interface PdfLearningStore {
   confirmations(layout: string): Promise<number>;
   confirm(layout: string): Promise<void>;

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { useLocale, useTranslations } from "use-intl";
 import { DISPLAY_CURRENCIES } from "@/domain/money/currencies";
 import { LOCALES, LOCALE_LABELS, type Locale } from "@/i18n/config";
+import { InstallApp } from "@/components/install-app";
 import { Button } from "@/components/ui/button";
 import { Badge, Input } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/segmented";
@@ -152,6 +153,8 @@ export function SettingsView({ model }: { model: SettingsModel }) {
           <Toggle checked={model.includeBusiness} disabled={pending} label={t("settings.includeBusiness")} onChange={(v) => run(() => setIncludeBusiness(v))} />
         </Row>
       </Section>
+
+      <InstallApp />
 
       <Section icon={<Cpu className="size-4" />} title={t("settings.ai")}>
         <Row label={t("settings.aiMode")} hint={model.ai.disabledReason}>

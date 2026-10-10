@@ -1,4 +1,13 @@
 const en = {
+  pwa: {
+    title: "Install Monio",
+    description: "Open Monio from your home screen in its own window. Financial data requires an internet connection.",
+    install: "Install app",
+    installed: "App installed",
+    manual: "On iPhone or iPad, open Safari, tap Share, then Add to Home Screen. In other browsers, use the browser’s install menu when available.",
+    insecure: "Installation requires HTTPS or localhost.",
+    error: "Installation could not be opened. Try again from the browser menu.",
+  },
   common: {
     appName: "Monio",
     tagline: "Your money, alive.",

@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
+    id: "/",
     name: "Monio",
     short_name: "Monio",
     description: "Your money, alive — banks, countries, currencies and crypto in one living picture.",

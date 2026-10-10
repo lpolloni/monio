@@ -351,7 +351,7 @@ const LOOKS_AMOUNT = /\d[.,]\d{2}(?!\d)/;
 const COLUMN_KEYWORDS: Record<"debit" | "credit" | "amount" | "balance", string[]> = {
   debit: ["dare", "uscite", "debito", "debitos", "debit", "debits", "saidas", "saida", "addebiti", "withdrawals", "money out", "paid out", "cargo", "soll"],
   credit: ["avere", "entrate", "credito", "creditos", "credit", "credits", "entradas", "entrada", "accrediti", "deposits", "money in", "paid in", "abono", "haben"],
-  amount: ["importo", "valor", "amount", "betrag", "montant", "importe", "valor r$", "importo eur"],
+  amount: ["importo", "valor", "amount", "betrag", "montant", "importe", "valor r$", "importo eur", "movimento", "movimentacao", "movimento r$"],
   balance: ["saldo", "balance", "solde", "kontostand"],
 };
 
@@ -362,7 +362,7 @@ interface Column {
 }
 
 function columnRole(text: string): ColumnRole | undefined {
-  const t = fold(text).replace(/[()]/g, "").trim();
+  const t = fold(text).replace(/\([^)]*\)/g, "").trim();
   for (const role of Object.keys(COLUMN_KEYWORDS) as ColumnRole[]) {
     if (COLUMN_KEYWORDS[role].includes(t)) return role;
   }
@@ -435,8 +435,9 @@ export function amountAppearsIn(magnitude: string, text: string): boolean {
   return false;
 }
 
-export async function parsePdf(bytes: Uint8Array, ctx: DocumentParseContext = {}): Promise<ParserOutput> {
-  let lines = await extractPdfLines(bytes);
+export async function parsePdf(bytes: Uint8Array, ctx: DocumentParseContext = {}, deps: { extractLines?: typeof extractPdfLines } = {}): Promise<ParserOutput> {
+  const extractLines = deps.extractLines ?? extractPdfLines;
+  let lines = await extractLines(bytes);
   // A full-document fallback supersedes the old isolated-line assist.
   const original = await parsePdfLines(lines, ctx.documentAssist ? { ...ctx, aiAssist: undefined } : ctx);
   if (!ctx.documentAssist || !lines.length) return original;
@@ -450,24 +451,25 @@ export async function parsePdf(bytes: Uint8Array, ctx: DocumentParseContext = {}
     } catch { console.warn("[import] PDF learning unavailable; using document AI"); }
   }
   if (!ctx.pdfLearning && !needsDocumentAi(original)) return original;
+  let recoveredOriginal = original;
   try {
     // Unknown layouts may mix native text and outlined/image-only headers.
     // Bound visual recovery to small statements; oversized documents retain native extraction.
     if (needsDocumentAi(original) && lines.at(-1)!.page <= 20) {
       console.info("[import] Local PDF visual text recovery started");
       try {
-        lines = await extractPdfLines(bytes, true);
+        lines = await extractLines(bytes, true);
         console.info("[import] Local PDF visual text recovery completed");
       }
       catch { original.statement.warnings.push({ code: "row_unreadable", message: "Visual PDF text recovery failed; only native text was available." }); }
     }
+    recoveredOriginal = await parsePdfLines(lines, { ...ctx, aiAssist: undefined });
     const result = await ctx.documentAssist(lines);
     const interpreted = validateDocumentInterpretation(result);
     if (!interpreted.statement.accounts.some(a => a.transactions.length || a.openingBalance || a.closingBalance)) {
-      original.statement.warnings.push(...interpreted.statement.warnings, { code: "ai_rejected_row", message: "AI could not produce a source-verified document interpretation." });
-      return original;
+      recoveredOriginal.statement.warnings.push(...interpreted.statement.warnings, { code: "ai_rejected_row", message: "AI could not produce a source-verified document interpretation." });
+      return recoveredOriginal;
     }
-    const recoveredOriginal = await parsePdfLines(lines, { ...ctx, aiAssist: undefined });
     if (ctx.pdfLearning && layout) {
       try {
         if (canLearnPdf(recoveredOriginal, interpreted, result, lines)) await ctx.pdfLearning.confirm(layout);
@@ -476,8 +478,8 @@ export async function parsePdf(bytes: Uint8Array, ctx: DocumentParseContext = {}
     }
     return mergeDocumentInterpretation(recoveredOriginal, interpreted);
   } catch {
-    original.statement.warnings.push({ code: "ai_rejected_row", message: "Document AI interpretation failed; deterministic extraction was retained." });
-    return original;
+    recoveredOriginal.statement.warnings.push({ code: "ai_rejected_row", message: "Document AI interpretation failed; visually recovered deterministic extraction was retained." });
+    return recoveredOriginal;
   }
 }
 
@@ -584,10 +586,87 @@ function parseNubankAccountLines(lines: PdfLine[]): ParserOutput | undefined {
   };
 }
 
+/** Generic positioned statement table; accepted only with complete source reconciliation. */
+function parseReconciledTable(lines: PdfLine[]): ParserOutput | undefined {
+  const headers = lines.filter(l => detectColumns(l)?.some(c => c.role === "amount") && detectColumns(l)?.some(c => c.role === "balance"));
+  if (headers.length !== 1) return undefined;
+  const header = headers[0]!;
+  const columns = detectColumns(header)!;
+  const preamble = lines.filter(l => l.line < header.line);
+  const institutionText = preamble.map(l => l.text).join("\n");
+  const issuer = findInstitutionByText(institutionText);
+  const currency = currencyInText([header]);
+  if (!issuer || !currency) return undefined;
+  const periods = preamble.flatMap(l => {
+    const match = /\b([a-zÀ-ÿ]+)\/(\d{4})\b/i.exec(l.text);
+    const month = match && MONTHS[fold(match[1]!)];
+    const start = month && iso(Number(match![2]), month, 1);
+    return start ? [{ start, end: new Date(Date.UTC(Number(match![2]), month!, 0)).toISOString().slice(0, 10) }] : [];
+  });
+  const unique = [...new Map(periods.map(p => [p.start, p])).values()];
+  if (unique.length !== 1) return undefined;
+  const period = unique[0]!;
+  let identifier: string | undefined;
+  for (const label of preamble) {
+    if (!/ag[eê]ncia/i.test(label.text)) continue;
+    const accountColumn = label.items.find(i => /^conta(?: corrente)?$/i.test(i.text));
+    const values = lines.find(l => l.line === label.line + 1);
+    if (!accountColumn || !values) continue;
+    const cell = values.items.filter(i => i.x >= accountColumn.x - 3).map(i => i.text).join("");
+    if (/^\d[\d.-]*$/.test(cell)) identifier = `bank:${issuer.slug}:${cell.replace(/\D/g, "")}`;
+  }
+  if (!identifier) return undefined;
+  const table = lines.filter(l => l.line > header.line && l.page === header.page);
+  const balance = (line: PdfLine) => {
+    const match = /^(?:saldo|balance) (?:em|on) (.+)$/i.exec(line.text);
+    if (!match) return undefined;
+    const date = datePrefix(match[1]!, "DMY");
+    const asOf = date && completeYear(date, period, undefined);
+    const tokens = columnAmounts(line, 0, columns)?.filter(a => a.role === "balance");
+    if (!asOf || tokens?.length !== 1) return undefined;
+    const t = tokens[0]!.reading;
+    return { asOf, amount: t.sign === "minus" || t.sign === "debit" ? toPlain(dec(t.magnitude).negated()) : t.magnitude };
+  };
+  const start = table.findIndex(l => balance(l)?.asOf === addDays(period.start, -1) || balance(l)?.asOf === period.start);
+  if (start < 0) return undefined;
+  const opening = balance(table[start]!)!;
+  let running = dec(opening.amount);
+  let date: PartialDate | undefined;
+  let dateRow: number | undefined;
+  const transactions: ParsedTransaction[] = [];
+  const usesMinus = table.some(l => columnAmounts(l, 0, columns)?.some(a => a.role === "amount" && ["minus", "debit"].includes(a.reading.sign)));
+  for (const line of table.slice(start + 1)) {
+    const closing = balance(line);
+    if (closing) {
+      if (closing.asOf !== period.end || !transactions.length || !running.equals(closing.amount)) return undefined;
+      return { statement: { format: "pdf", profile: "pdf-column-statement", warnings: [], accounts: [{ key: "default", type: "checking", currency, identifier, identifierMask: identifier.replace(/\D/g, "").slice(-4), openingBalance: opening, closingBalance: closing, transactions }] }, institutionText, statedPeriod: period };
+    }
+    const prefix = datePrefix(line.text, "DMY");
+    if (prefix) { date = prefix; dateRow = line.line; }
+    const amounts = columnAmounts(line, prefix?.length ?? 0, columns);
+    const moving = amounts?.filter(a => a.role === "amount") ?? [];
+    if (!moving.length) {
+      if (LOOKS_AMOUNT.test(line.text)) return undefined;
+      continue; // Wrapped descriptions/date-time continuations are never movements.
+    }
+    if (!date || moving.length !== 1) return undefined;
+    const parsed = readCandidate({ line, date: prefix ?? { ...date, length: 0 }, rest: line.text.slice(prefix?.length ?? 0) }, { columns, isCard: false, usesMinus, period, currency });
+    if ("reason" in parsed || parsed.tx.bookedOn < period.start || parsed.tx.bookedOn > period.end) return undefined;
+    running = running.plus(parsed.tx.amount);
+    const printed = amounts?.filter(a => a.role === "balance") ?? [];
+    if (printed.length > 1 || (printed.length === 1 && !running.equals(printed[0]!.reading.sign === "minus" ? toPlain(dec(printed[0]!.reading.magnitude).negated()) : printed[0]!.reading.magnitude))) return undefined;
+    parsed.tx.raw.date_source_row = String(dateRow);
+    transactions.push(parsed.tx);
+  }
+  return undefined;
+}
+
 /** Deterministic parsing of already-extracted lines (+ optional AI assist for ambiguous ones). */
 export async function parsePdfLines(lines: PdfLine[], ctx: DocumentParseContext = {}): Promise<ParserOutput> {
   const nubank = parseNubankAccountLines(lines);
   if (nubank) return nubank;
+  const reconciled = parseReconciledTable(lines);
+  if (reconciled) return reconciled;
   const warnings = new WarningSink();
 
   // Pass 1: numeric date order across the whole document (header dates such as

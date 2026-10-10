@@ -1,6 +1,15 @@
 import type { Messages } from "./en";
 
 const pt: Messages = {
+  pwa: {
+    title: "Instalar Monio",
+    description: "Abra o Monio pela tela inicial em uma janela própria. Os dados financeiros exigem conexão com a internet.",
+    install: "Instalar app",
+    installed: "App instalado",
+    manual: "No iPhone ou iPad, abra o Safari, toque em Compartilhar e em Adicionar à Tela de Início. Em outros navegadores, use o menu de instalação quando disponível.",
+    insecure: "A instalação exige HTTPS ou localhost.",
+    error: "Não foi possível abrir a instalação. Tente pelo menu do navegador.",
+  },
   common: {
     appName: "Monio",
     tagline: "Seu dinheiro, vivo.",

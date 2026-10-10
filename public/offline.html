@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f1118">
+<title>Monio · Offline</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #0f1118; color: #f8f7f3; }
+  body { min-height: 90vh; display: grid; place-items: center; margin: 0; padding: 24px; }
+  main { max-width: 440px; text-align: center; } p { line-height: 1.6; color: #bbbfc9; }
+  a { display: inline-block; margin-top: 20px; padding: 12px 24px; border-radius: 30px; background: #f8f7f3; color: #0f1118; text-decoration: none; }
+</style>
+<main>
+  <h1>Monio</h1>
+  <h2 id="title">Você está offline</h2>
+  <p id="description">Conecte-se à internet para acessar seus dados financeiros com segurança.</p>
+  <a href="/" id="retry">Tentar novamente</a>
+</main>
+<script>
+  const locale = location.pathname.split('/')[1];
+  const messages = {
+    en: ['You are offline', 'Connect to the internet to securely access your financial data.', 'Try again'],
+    it: ['Sei offline', 'Connettiti a internet per accedere in sicurezza ai tuoi dati finanziari.', 'Riprova'],
+    pt: ['Você está offline', 'Conecte-se à internet para acessar seus dados financeiros com segurança.', 'Tentar novamente']
+  };
+  const language = messages[locale] ? locale : 'pt';
+  document.documentElement.lang = language;
+  ['title', 'description', 'retry'].forEach((id, i) => document.getElementById(id).textContent = messages[language][i]);
+  document.getElementById('retry').href = '/' + language;
+</script>
+</html>

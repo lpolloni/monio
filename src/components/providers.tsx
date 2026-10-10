@@ -7,6 +7,7 @@ import { Toaster } from "sonner";
 import { IntlProvider } from "use-intl";
 import type { Locale } from "@/i18n/config";
 import type { Messages } from "@/i18n/messages/en";
+import { InstallPromptListener } from "./install-app";
 import { ServiceWorkerRegistration } from "./service-worker";
 
 export function Providers({ locale, messages, children }: { locale: Locale; messages: Messages; children: ReactNode }) {
@@ -17,6 +18,7 @@ export function Providers({ locale, messages, children }: { locale: Locale; mess
         <MotionConfig reducedMotion="user">
           {children}
           <ServiceWorkerRegistration />
+          <InstallPromptListener />
           <Toaster
             position="top-center"
             toastOptions={{
