@@ -176,3 +176,21 @@ it("reads calendar-month periods, inherited movement dates and a distant referen
   p.accounts[0]!.transactions[2]!.amount = "-20";
   expect(validateDocumentInterpretation(result(p, source)).statement.accounts[0]!.transactions).toHaveLength(2);
 });
+
+it("reads the movement column instead of an AI-proposed running balance", () => {
+  const source: DocumentLine[] = [
+    { line: 1, page: 1, text: "Banco Fictício Aurora", items: [] },
+    { line: 2, page: 1, text: "Conta: 12345-6", items: [] },
+    { line: 3, page: 1, text: "Período: 01/09/2026 a 30/09/2026 BRL", items: [] },
+    { line: 4, page: 1, text: "Data Descrição Movimento (R$) Saldo (R$)", items: [{ x: 400, width: 40, text: "Movimento" }, { x: 500, width: 30, text: "Saldo" }] },
+    { line: 5, page: 1, text: "21/09/2026 Remuneração fictícia 0,02 32,02", items: [{ x: 40, width: 60, text: "21/09/2026" }, { x: 120, width: 150, text: "Remuneração fictícia" }, { x: 425, width: 20, text: "0,02" }, { x: 515, width: 25, text: "32,02" }] },
+  ];
+  const p = proposal();
+  p.accounts[0]!.openingBalance = null; p.accounts[0]!.closingBalance = null;
+  p.accounts[0]!.transactions = [{ line: 5, date: "2026-09-21", dateLine: 5, description: "Remuneração fictícia", descriptionLines: [5], amount: "32.02", amountLine: 5, directionLine: 5 }];
+  const out = validateDocumentInterpretation(result(p, source));
+  expect(out.statement.accounts[0]!.transactions[0]).toMatchObject({ amount: "0.02", raw: { model_amount_proposal: "32.02", amount_correction: "source_movement_column" } });
+  // A missing movement cannot be replaced by the balance cell.
+  source[4]!.items = source[4]!.items.filter(i => i.x !== 425);
+  expect(validateDocumentInterpretation(result(p, source)).statement.accounts[0]!.transactions).toEqual([]);
+});

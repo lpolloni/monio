@@ -7,7 +7,7 @@ import { findInstitutionByText } from "../institution-catalog";
 import type { PdfLine } from "./pdf";
 
 // Increment when any certified reader or validation semantics change.
-export const PDF_READER_VERSION = 1;
+export const PDF_READER_VERSION = 2;
 export interface PdfLearningStore {
   confirmations(layout: string): Promise<number>;
   confirm(layout: string): Promise<void>;
@@ -57,7 +57,7 @@ export function canLearnPdf(native: ParserOutput, interpreted: ParserOutput, res
   for (const key of ["openingBalance", "closingBalance"] as const) {
     if (!b[key] || a[key]!.asOf !== b[key]!.asOf || !dec(a[key]!.amount).equals(b[key]!.amount)) return false;
   }
-  if (a.transactions.length !== b.transactions.length) return false;
+  if (a.transactions.length !== b.transactions.length || b.transactions.some(t => t.raw.amount_correction)) return false;
   const unmatched = [...b.transactions];
   for (const t of a.transactions) {
     const i = unmatched.findIndex(u => (u.sourceRow === t.sourceRow || u.raw.evidence_lines?.split(",").includes(String(t.sourceRow))) && u.bookedOn === t.bookedOn && dec(u.amount).equals(t.amount) && u.currency === t.currency && u.description.replace(/\s+/g, " ").trim() === t.description.replace(/\s+/g, " ").trim());

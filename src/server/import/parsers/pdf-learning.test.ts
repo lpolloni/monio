@@ -29,6 +29,7 @@ describe("safe PDF learning", () => {
       (f: ReturnType<typeof fixture>) => { f.interpreted.statement.accounts[0]!.transactions[0]!.amount = "10"; },
       (f: ReturnType<typeof fixture>) => { f.native.statement.accounts[0]!.closingBalance!.amount = "80"; },
       (f: ReturnType<typeof fixture>) => { f.interpreted.statement.accounts[0]!.identifier = "other"; },
+      (f: ReturnType<typeof fixture>) => { f.interpreted.statement.accounts[0]!.transactions[0]!.raw.amount_correction = "source_movement_column"; },
       (f: ReturnType<typeof fixture>) => { f.interpreted.statement.warnings.push({ code: "row_unreadable", message: "fixture" }); },
     ]) {
       const f = fixture(); corrupt(f);

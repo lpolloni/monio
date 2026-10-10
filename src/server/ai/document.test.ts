@@ -16,11 +16,12 @@ describe("full-document AI service", () => {
     if (!result.ok) return;
     expect(result.data).toHaveLength(3);
     expect(result.data.flatMap(b => b.primaryLines)).toEqual(lines(105).map(l => l.line));
-    expect(result.data[1]!.lines.some(l => l.line === 40)).toBe(true);
+    expect(result.data[1]!.lines.some(l => l.line === 35)).toBe(true);
     expect(result.data[1]!.lines.some(l => l.line === 1)).toBe(true);
     expect(result.data[1]!.lines.some(l => l.line === 105)).toBe(true);
-    const payload = payloadOf(calls[0]!) as { lines: DocumentLine[] };
-    expect(payload.lines[0]).toMatchObject({ page: 1, items: [{ x: 40, width: 100 }] });
+    const payload = payloadOf(calls[0]!) as { lines: { line: number; text: string; page: number; items: unknown[] }[] };
+    expect(payload.lines[0]).toMatchObject({ page: 1, items: [[40, 100, "Line 1"]] });
+    expect(result.data[0]!.lines[0]!.items[0]).toMatchObject({ x: 40, width: 100 });
     expect(systemOf(calls[0]!)).toContain("untrusted");
     expect(calls[0]!.body).toMatchObject({ enable_thinking: false, response_format: { type: "json_schema" } });
   });
@@ -37,7 +38,7 @@ describe("full-document AI service", () => {
     const { fetchImpl } = fakeFetch((_call, index) => chatResponse(JSON.stringify(index === 0 ? empty : { ...empty, extra: "invented" })));
     const r = await createAiService(OMLX_CONFIG, { fetchImpl }).interpretDocument(lines(45));
     expect(r.ok).toBe(true);
-    expect(r.meta.skippedLines).toEqual([41, 42, 43, 44, 45]);
+    expect(r.meta.skippedLines).toEqual(Array.from({ length: 10 }, (_, i) => i + 36));
   });
 
   it("sanitizes control characters/delimiters without losing line numbers", async () => {
@@ -66,4 +67,37 @@ describe("full-document AI service", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.data[0]!.proposal).toEqual({ ...empty, unparsedLines: [1, 2] });
   });
+});
+
+it("carries later-page account/period headers into earlier sections without losing source geometry", async () => {
+  const source = lines(105);
+  source[50]!.text = "Agência Conta Corrente";
+  source[51]!.text = "0001 12345-6";
+  source[70]!.text = "Resumo - setembro/2026";
+  const { fetchImpl, calls } = fakeFetch(() => chatResponse(JSON.stringify(empty)));
+  const result = await createAiService(OMLX_CONFIG, { fetchImpl }).interpretDocument(source);
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  const first = payloadOf(calls[0]!) as { lines: { line: number; text: string }[] };
+  expect(first.lines).toContainEqual(expect.objectContaining({ line: 51, text: "Agência Conta Corrente" }));
+  expect(first.lines).toContainEqual(expect.objectContaining({ line: 52, text: "0001 12345-6" }));
+  expect(first.lines).toContainEqual(expect.objectContaining({ line: 71, text: "Resumo - setembro/2026" }));
+  expect(result.data.flatMap(b => b.primaryLines)).toEqual(source.map(l => l.line));
+  expect(result.data.flatMap(b => b.lines).find(l => l.line === 51)!.items).toEqual(source[50]!.items);
+});
+
+it("interprets a sparse multi-page statement in one whole-file request", async () => {
+  const source = lines(138);
+  source[43]!.text = "Resumo - setembro/2026";
+  source[58]!.text = "21/09 Pagamento fictício 102,50-";
+  source[60]!.text = "Remuneração fictícia 0,02";
+  source[61]!.text = "28/09 Pix fictício 2.184,00";
+  const { fetchImpl, calls } = fakeFetch(() => chatResponse(JSON.stringify(empty)));
+  const result = await createAiService(OMLX_CONFIG, { fetchImpl }).interpretDocument(source);
+  expect(calls).toHaveLength(1);
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect(result.meta.skippedLines).toBeUndefined();
+  expect(result.data[0]!.primaryLines).toEqual(source.map(l => l.line));
+  expect(result.data[0]!.lines.map(l => l.text)).toEqual(source.map(l => l.text));
 });

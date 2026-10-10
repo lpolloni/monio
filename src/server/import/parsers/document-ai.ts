@@ -21,6 +21,28 @@ function hasMagnitude(amount: string, text: string): boolean {
   // Account numbers, dates and integer reference numbers are not money evidence.
   return /\d[.,]\d{2}(?!\d)/.test(text) && amountTokensInLine(text).some(t => t.values.some(v => dec(v).abs().equals(dec(amount).abs())));
 }
+/** A running balance is never a movement amount. Use only an unambiguous labelled column. */
+function movementColumnAmount(proposed: string, row: DocumentLine, source: Map<number, DocumentLine>): string | null {
+  for (const header of [...source.values()].filter(l => l.page === row.page && l.line < row.line && row.line - l.line <= 30).reverse()) {
+    const columns = header.items.flatMap(i => {
+      const label = fold(i.text).replace(/\([^)]*\)/g, "").trim();
+      const role = /^(?:saldo|balance|solde)$/.test(label) ? "balance" : /^(?:movimento|movimentacao|amount|valor|importo|importe|debit|credit|debito|credito)$/.test(label) ? "movement" : undefined;
+      return role ? [{ role, center: i.x + i.width / 2 }] : [];
+    });
+    if (!columns.some(c => c.role === "balance") || !columns.some(c => c.role === "movement")) continue;
+    const cells = row.items.filter(i => /\d[.,]\d{2}(?!\d)/.test(i.text)).filter(i => {
+      const center = i.x + i.width / 2;
+      return [...columns].sort((a, b) => Math.abs(a.center - center) - Math.abs(b.center - center))[0]?.role === "movement";
+    });
+    if (cells.length !== 1) return null;
+    const parsed = parseAmount(cells[0]!.text);
+    if (!parsed) return null;
+    const amount = dec(parsed.amount).abs();
+    return toPlain(dec(proposed).isNegative() ? amount.negated() : amount);
+  }
+  return proposed;
+}
+
 function monthPeriod(text: string): { start: string; end: string } | undefined {
   const m = /^\s*([A-Za-zÀ-ÿ]{3,12})\s*[/-]\s*(\d{4})\s*$/.exec(text);
   if (!m) return undefined;
@@ -192,21 +214,26 @@ export function validateDocumentInterpretation(result: DocumentAiResult): Parser
           const previous = batch.lines.filter(l => l.line < t.amountLine && t.amountLine - l.line <= 12 && l.page === amountSource?.page && (dateCandidatesInLine(l.text).full.size || dateCandidatesInLine(l.text).partial.size)).at(-1);
           if (previous && hasDate(t.date, previous.text, period) && !isSummaryLine(previous.text)) dateSource = previous;
         }
+        const sourceAmount = amountSource ? movementColumnAmount(t.amount, amountSource, source) : null;
+        if (sourceAmount === null) { warn(t.line, "Movement amount column is ambiguous or missing."); continue; }
+        const modelAmount = t.amount;
+        // Copy the amount from the source column, never from the running balance.
+        const amount = sourceAmount;
         const descriptions = [...new Set(t.descriptionLines)].sort((x, y) => x - y).map(n => source.get(n));
         const originalDescriptionText = normalizeDescription(descriptions.map(l => l?.text ?? "").join(" "));
-        const descriptionText = normalizeDescription(descriptions.map(l => l?.line === t.amountLine ? withoutAmount(l.text, t.amount) : l?.text ?? "").join(" "));
+        const descriptionText = normalizeDescription(descriptions.map(l => l?.line === t.amountLine ? withoutAmount(l.text, amount) : l?.text ?? "").join(" "));
         if (!origin || !amountSource || !dateSource || !direction || descriptions.some(l => !l) ||
           descriptions.some(l => Math.abs(l!.line - t.line) > 12) || Math.abs(t.amountLine - t.line) > 12 ||
           dateSource.line > t.amountLine || (dateSource.text.match(/\b\d{1,4}[/.\-]\d{1,2}[/.\-]\d{2,4}\b/g)?.length ?? 0) > 1 || /\b(period|periodo|vencimento|due date|issued|gerado)\b/.test(fold(dateSource.text)) ||
           !hasDate(t.date, dateSource.text, period) || (period && (t.date < period.start || t.date > period.end)) ||
-          !hasMagnitude(t.amount, amountSource.text) || !directionSupported(t.amount, amountSource, direction, source) ||
+          !hasMagnitude(amount, amountSource.text) || !directionSupported(amount, amountSource, direction, source) ||
           (!descriptionText.includes(normalizeDescription(t.description)) && !originalDescriptionText.includes(normalizeDescription(t.description))) ||
           isSummaryLine(t.description) || isSummaryLine(amountSource.text)) {
           warn(t.line, "Transaction is not supported by its source date, description, amount and direction."); continue;
         }
         txProposals.push({ account, amountLine: t.amountLine, tx: {
-          bookedOn: t.date, description: normalizeDescription(t.description), amount: toPlain(t.amount), currency: a.currency,
-          sourceRow: t.line, extraction: "ai", raw: { line: origin.text, page: String(origin.page), amount_line: amountSource.text, date_line: dateSource.text, description_lines: descriptions.map(l => l!.text).join("\n"), evidence_lines: [t.line, t.amountLine, dateSource.line, t.directionLine, ...t.descriptionLines].join(",") },
+          bookedOn: t.date, description: normalizeDescription(t.description), amount: toPlain(amount), currency: a.currency,
+          sourceRow: t.line, extraction: "ai", raw: { ...(dec(modelAmount).equals(amount) ? {} : { model_amount_proposal: modelAmount, amount_correction: "source_movement_column" }), line: origin.text, page: String(origin.page), amount_line: amountSource.text, date_line: dateSource.text, description_lines: descriptions.map(l => l!.text).join("\n"), evidence_lines: [t.line, t.amountLine, dateSource.line, t.directionLine, ...t.descriptionLines].join(",") },
         } });
       }
     }

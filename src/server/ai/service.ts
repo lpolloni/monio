@@ -349,14 +349,28 @@ export function createAiService(config: AiConfig, deps: AiServiceDeps = {}): AiS
         return { ok: false, error: aiError("invalid_input", "Invalid PDF document lines."), meta: meta(started) };
       }
       const clean = input.data.map(l => ({ ...l, text: sanitizeUntrustedText(l.text, 2000), items: l.items.map(i => ({ ...i, text: sanitizeUntrustedText(i.text, 2000) })) }));
+      // Compact geometry avoids repeating verbose PDF.js objects in the model prompt.
+      // Validation retains the exact original objects in DocumentBatch.lines.
+      const wireLine = (l: DocumentLine) => ({ line: l.line, page: l.page, text: l.text,
+        items: l.items.map(i => [Math.round(i.x), Math.round(i.width), i.text]),
+      });
+      // Account/period headers may be on a later page, outside first/last context.
+      const anchors = clean.flatMap((l, i) =>
+        /(?:\b(?:ag[eê]ncia|iban|account number|conta corrente|per[ií]odo|statement period)\b|(?:janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\/\d{4})/i.test(l.text)
+          ? clean.slice(Math.max(0, i - 1), i + 3) : []).slice(0, 40);
       // No first-N truncation: every line belongs to one primary batch. Context
       // overlaps preserve dates/descriptions split across a batch/page boundary.
+      // Sparse multi-page statements fit one coherent request: preserve the entire
+      // file rather than making the model repeatedly rediscover account context.
+      const monetaryLines = clean.filter(l => /\d[.,]\d{2}(?!\d)/.test(l.text)).length;
+      const wholeDocument = clean.length <= 240 && monetaryLines > 0 && monetaryLines <= 30 &&
+        clean.reduce((n, l) => n + JSON.stringify(wireLine(l)).length, 0) <= 48_000;
       const groups: DocumentLine[][] = [];
       let group: DocumentLine[] = [];
       let chars = 0;
       for (const l of clean) {
-        const size = JSON.stringify(l).length;
-        if (group.length && (group.length >= 40 || chars + size > 16_000)) { groups.push(group); group = []; chars = 0; }
+        const size = JSON.stringify(wireLine(l)).length;
+        if (!wholeDocument && group.length && (group.length >= 80 || chars + size > 24_000 || group[0]!.page !== l.page)) { groups.push(group); group = []; chars = 0; }
         group.push(l); chars += size;
       }
       if (group.length) groups.push(group);
@@ -370,13 +384,13 @@ export function createAiService(config: AiConfig, deps: AiServiceDeps = {}): AiS
           skippedLines.push(...primary.map(l => l.line));
           continue;
         }
-        const context = [...clean.slice(0, 12), ...clean.slice(-8), ...clean.slice(Math.max(0, offset - 12), offset + primary.length + 8)];
+        const context = [...anchors, ...clean.slice(0, 12), ...clean.slice(-8), ...clean.slice(Math.max(0, offset - 12), offset + primary.length + 8)];
         const payload = { lines: [...new Map(context.map(l => [l.line, l])).values()].sort((a, b) => a.line - b.line), primaryLines: primary.map(l => l.line) };
         offset += primary.length;
         requests++;
         console.info(`[import] Document AI section ${batchIndex + 1}/${groups.length} started`);
         const outcome = await call({ task: "interpret_document", timeoutMs: Math.max(1, 240_000 - (now() - started)), system: DOCUMENT_SYSTEM_PROMPT,
-          user: `Interpret this document section.\n${DATA_OPEN}\n${JSON.stringify(payload)}\n${DATA_CLOSE}`, payload });
+          user: `Interpret this document section. Text item tuples are [x, width, text] in page points.\n${DATA_OPEN}\n${JSON.stringify({ ...payload, lines: payload.lines.map(wireLine) })}\n${DATA_CLOSE}`, payload });
         console.info(`[import] Document AI section ${batchIndex + 1}/${groups.length} ${outcome.ok ? "answered" : "failed"}`);
         await options?.onProgress?.(batchIndex + 1, groups.length);
         const proposal = outcome.ok ? parseDocumentProposal(outcome.value) : null;
