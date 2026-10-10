@@ -8,6 +8,7 @@ import type { AccountType } from "@/domain/import/types";
 import { generateInsights } from "@/domain/insights/generate";
 import { findPossibleDuplicates, matchTransfers, type MatchableTransaction } from "@/domain/transactions/matching";
 import { detectRecurring } from "@/domain/transactions/recurring";
+import { accountLabel } from "@/lib/institutions";
 import type { Json } from "../supabase/database.types";
 import { dbNumeric } from "../supabase/numeric";
 import type { MonioClient } from "../supabase/server";
@@ -212,8 +213,8 @@ export async function postProcessUser(db: MonioClient, userId: string, options: 
           outCurrency: out.currency,
           inAmount: inc.amount,
           inCurrency: inc.currency,
-          fromAccount: `${outAcc?.institutionName ?? ""} ${outAcc?.name ?? ""}`.trim(),
-          toAccount: `${inAcc?.institutionName ?? ""} ${inAcc?.name ?? ""}`.trim(),
+          fromAccount: accountLabel(outAcc?.institutionName, outAcc?.name),
+          toAccount: accountLabel(inAcc?.institutionName, inAcc?.name),
           date: out.bookedOn,
           kind: m.kind,
           score: m.score,
@@ -408,7 +409,7 @@ export async function postProcessUser(db: MonioClient, userId: string, options: 
         dedupe_key: `stale:${a.accountId}:${last}`,
         priority: 20,
         account_id: a.accountId,
-        payload: { account: `${a.institutionName ?? ""} ${a.name}`.trim(), date: last },
+        payload: { account: accountLabel(a.institutionName, a.name), date: last },
       });
       stats.staleSources++;
     }
@@ -478,7 +479,7 @@ async function regenerateInsights(
     accountsCompared: covered.size,
     accountsExcludedForIncompleteData: excluded.map((id) => {
       const a = accountById.get(id);
-      return { id, name: `${a?.institutionName ?? ""} ${a?.name ?? ""}`.trim(), coveredUntil: coverage.get(id) ?? null };
+      return { id, name: accountLabel(a?.institutionName, a?.name), coveredUntil: coverage.get(id) ?? null };
     }),
   };
 

@@ -2,6 +2,7 @@ import "server-only";
 import { computeCashflow } from "@/domain/analytics/cashflow";
 import { addDaysIso, addMonthsToKey, monthEnd, monthKey, monthStart } from "@/domain/analytics/periods";
 import { dec, toScale } from "@/domain/money/decimal";
+import { accountLabel } from "@/lib/institutions";
 import { todayIso } from "./dates";
 import { getAccounts, getCategories, getFxTable, getTransactionsInRange } from "./queries";
 import { getProfile, requireSession } from "./session";
@@ -124,7 +125,7 @@ export async function getActivityData(filters: ActivityFilterInput) {
       sourceRow: r.sourceRow,
       extraction: r.extraction,
       source: r.source,
-      counterpartAccount: cpAccount ? `${cpAccount.institutionName ?? ""} ${cpAccount.name}`.trim() : null,
+      counterpartAccount: cpAccount ? accountLabel(cpAccount.institutionName, cpAccount.name) : null,
     };
   });
 
@@ -184,7 +185,7 @@ export async function getRecurringList() {
       occurrences: s.occurrences,
       isSubscription: s.is_subscription,
       status: s.status,
-      accountName: account ? `${account.institutionName ?? ""} ${account.name}`.trim() : null,
+      accountName: account ? accountLabel(account.institutionName, account.name) : null,
       monthlyEquivalent: converted ? toScale(dec(converted.amount).times(dec(monthlyFactor[s.cadence] ?? "1")), 2) : null,
       displayCurrency: profile.primaryCurrency,
     };

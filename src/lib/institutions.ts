@@ -26,3 +26,17 @@ export function institutionShortLabel(slug: string | null | undefined, name: str
   if (slug && SHORT_LABELS[slug]) return SHORT_LABELS[slug]!;
   return monogram(name);
 }
+
+/**
+ * "Institution Account" for display, without repeating the institution when the
+ * account name already carries it ("Revolut EUR", not "Revolut Revolut EUR").
+ */
+export function accountLabel(institutionName: string | null | undefined, accountName: string | null | undefined): string {
+  const name = (accountName ?? "").trim();
+  const institution = (institutionName ?? "").trim();
+  if (!institution) return name;
+  if (!name) return institution;
+  const firstWord = institution.split(/\s+/)[0]!.toLowerCase();
+  if (firstWord.length >= 2 && name.toLowerCase().split(/[\s·\-/]+/).includes(firstWord)) return name;
+  return `${institution} ${name}`;
+}

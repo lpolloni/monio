@@ -159,8 +159,9 @@ function InstitutionCard({ inst, currency, now, index }: { inst: ExploreInstitut
       className="relative overflow-hidden rounded-[1.75rem] bg-bg-elevated/80 hairline shadow-soft"
     >
       <div
-        className="pointer-events-none absolute -top-24 -right-16 size-56 rounded-full opacity-60 blur-3xl"
-        style={{ background: `color-mix(in oklch, ${color} 26%, transparent)` }}
+        className="pointer-events-none absolute -top-24 -right-16 size-56 rounded-full opacity-50 blur-3xl"
+        // Kept faint: amounts sit on top of this glow and must keep AA contrast.
+        style={{ background: `color-mix(in oklch, ${color} 14%, transparent)` }}
         aria-hidden
       />
       <header className="relative flex items-center gap-3 px-5 pt-5">

@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
 import { formatDate, formatMoney, formatNumber } from "@/lib/format";
+import { accountLabel } from "@/lib/institutions";
 import { cn, prettyDescription } from "@/lib/utils";
 import { updateTransactionCategory } from "@/server/actions/finance";
 import type { ActivityPeriod, ActivityRow } from "@/server/data/activity";
@@ -230,7 +231,7 @@ function TransactionDetail({ row, categories, onClose }: { row: ActivityRow | nu
         }
       }}
       title={row?.merchant ?? (row ? prettyDescription(row.description) : "")}
-      description={row ? `${formatDate(row.bookedOn, locale, "long")} · ${row.institutionName ?? ""} ${row.accountName}` : undefined}
+      description={row ? `${formatDate(row.bookedOn, locale, "long")} · ${accountLabel(row.institutionName, row.accountName)}` : undefined}
       closeLabel={t("common.close")}
     >
       {row ? (
